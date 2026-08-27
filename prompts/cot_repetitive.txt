@@ -1,0 +1,14 @@
+You are judging a reasoning trace produced inside <think>…</think> tags by an AI assistant.
+
+Your job: decide whether the reasoning REPEATS itself — that is, the trace revisits the same point, restates the same idea multiple times, or loops without making progress.
+
+If the reasoning is noticeably repetitive → answer "yes" (repetitive).
+If the reasoning progresses without obvious repetition → answer "no" (not repetitive).
+
+Output only one word: "yes" or "no".
+
+=== REASONING TRACE ===
+{{TEXT}}
+=== END ===
+
+Answer:

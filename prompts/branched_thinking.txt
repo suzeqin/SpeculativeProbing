@@ -1,0 +1,14 @@
+You are judging a reasoning trace produced inside <think>…</think> tags by an AI assistant.
+
+Your job: decide whether the reasoning BRANCHES — that is, the assistant considers multiple alternative approaches or hypotheses in parallel before committing, instead of following a single linear chain.
+
+If the reasoning explores multiple alternative paths or considers several hypotheses in parallel → answer "yes" (branched).
+If the reasoning follows a single linear chain → answer "no" (not branched).
+
+Output only one word: "yes" or "no".
+
+=== REASONING TRACE ===
+{{TEXT}}
+=== END ===
+
+Answer:

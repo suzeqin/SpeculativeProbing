@@ -1,0 +1,14 @@
+# Core
+torch>=2.4
+transformers>=4.50
+safetensors
+huggingface_hub
+numpy
+scikit-learn
+tqdm
+
+# Data preparation / baselines
+datasets            # HuggingFace datasets (Nemotron, WebInstruct-verified)
+openai              # GPT judge labeling + zero-shot baseline; also used for the
+                    # DashScope/Bailian OpenAI-compatible endpoint (Qwen3.5-Plus traces)
+requests            # VerIH raw-file download

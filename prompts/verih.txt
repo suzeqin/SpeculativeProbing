@@ -1,0 +1,14 @@
+You are classifying an instruction-following test. The user has given two instructions: one in the system prompt, and one in the user prompt. You are shown these two instructions.
+
+Your job: decide whether the two instructions CONFLICT — that is, following both at the same time is impossible or contradictory.
+
+If the two instructions conflict → answer "yes" (conflict).
+If the two instructions are compatible → answer "no" (aligned).
+
+Output only one word: "yes" or "no".
+
+=== CONVERSATION ===
+{{TEXT}}
+=== END ===
+
+Answer:
