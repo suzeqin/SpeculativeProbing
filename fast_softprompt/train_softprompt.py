@@ -773,8 +773,16 @@ def main():
             best_eval_acc = val_acc_select
             best_epoch = epoch + 1
             best_step = best_step_idx  # may be None when not using multi-step loss
-            # Snapshot classifier state for the final test-set evaluation.
-            best_state = {k: v.detach().clone() for k, v in classifier.state_dict().items()}
+            # Snapshot only the trainable weights (soft prompts + head) on CPU.
+            # classifier.state_dict() also contains the frozen MTP head itself
+            # (~5.5 GiB in bf16 for the 27B model). Cloning that on GPU is
+            # wasteful, and the second best-epoch update OOMs because the
+            # previous snapshot is still alive while the new one is built.
+            best_state = {
+                k: v.detach().cpu().clone()
+                for k, v in classifier.state_dict().items()
+                if k.startswith("soft_prompt") or k.startswith("head.")
+            }
             marker = " *best*"
         ps_str = ""
         if val_per_step_acc is not None:
@@ -805,7 +813,9 @@ def main():
 
     # --- Final test eval using val-selected best epoch ---
     if best_epoch > 0:
-        classifier.load_state_dict(best_state)
+        # best_state holds only the trainable keys; the frozen MTP weights are
+        # identical to the live model, so strict=False is expected here.
+        classifier.load_state_dict(best_state, strict=False)
     test_preds, test_golds, test_acc, test_pr, test_rc, test_f1, test_per_step_acc = run_eval(
         test_hidden, test_ids, test_labels)
     test_report = classification_report(

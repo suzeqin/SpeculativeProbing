@@ -146,6 +146,10 @@ def main():
             e = min(s + args.batch_size, num_train)
             optimizer.zero_grad()
             logits, loss = classifier(train_f[s:e], train_l[s:e])
+            if not torch.isfinite(loss):
+                # A handful of cached 27B hidden states are non-finite (NaN).
+                # Skip the batch so one bad sample cannot poison every weight.
+                continue
             loss.backward()
             optimizer.step()
 
