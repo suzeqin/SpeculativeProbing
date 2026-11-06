@@ -23,6 +23,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "fast_softprompt"))
 
+import minicpm_compat  # noqa: E402  (transformers 5.x remote-code shim)
+
 RANDOM_SEED = 42
 random.seed(RANDOM_SEED)
 
@@ -49,6 +51,8 @@ def main():
     parser.add_argument("--task", choices=["wildchat", "verih", "adversarial_if",
                                             "nemotron_safety",
                                             "cot_repetitive", "cot_branched"], required=True)
+    parser.add_argument("--base_model", default=MODEL_NAME,
+                        help="HF id or local path to MiniCPM4.1-8B")
     parser.add_argument("--output_prefix", required=True,
                         help="Will write <prefix>.pt, <prefix>_mid.pt, <prefix>_eagle3.pt")
     parser.add_argument("--data", default=None,
@@ -59,7 +63,7 @@ def main():
     parser.add_argument("--num_test", type=int, default=None)
     args = parser.parse_args()
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.base_model, trust_remote_code=True)
 
     # Load data
     if args.task == "wildchat":
@@ -100,9 +104,9 @@ def main():
     all_ids = train_ids + test_ids
     all_labels = train_labels + test_labels
 
-    print(f"\nLoading {MODEL_NAME}...")
+    print(f"\nLoading {args.base_model}...")
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME, torch_dtype=torch.bfloat16, trust_remote_code=True, device_map="auto",
+        args.base_model, torch_dtype=torch.bfloat16, trust_remote_code=True, device_map="auto",
     )
     model.eval()
     device = str(model.lm_head.weight.device)
@@ -117,7 +121,7 @@ def main():
     print(f"hidden={hidden_dim}, num_samples={num_samples}, total_tokens={total_tokens}")
 
     base_meta = {
-        "model": MODEL_NAME,
+        "model": args.base_model,
         "task": args.task,
         "num_train": num_train,
         "num_test": len(test_ids),

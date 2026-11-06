@@ -3,7 +3,7 @@
 **论文**：Speculative Probing: LLM Monitoring at Speculative-Decoding Cost  
 **论文来源**：arXiv:2608.28099；EMNLP 2026 Findings（2026.findings-emnlp.1239）  
 **官方代码**：https://github.com/collinzrj/SpeculativeProbing  
-**复现日期**：2026-11-01 至 2026-11-04  
+**复现日期**：2026-11-01 至 2026-11-05  
 **复现环境**：Linux；Python 3.10.22；PyTorch 2.8.0+cu126；Transformers 5.20.2；conda 环境 `sp`  
 **硬件**：8× GPU（RTX 4090 / RTX A6000，48 GB），共享服务器
 
@@ -11,15 +11,16 @@
 
 ## 1. 执行摘要
 
-本次复现覆盖论文主表中的 **Qwen3.5-4B / 9B / 27B × {VerIH, nemotron_safety} × {SP-1, SP-2, SP-5, MLP, MultiMax}**，共 **30 个实验格**，全部生成了 `final_results.json`。
+本次复现覆盖论文主表中的 **Qwen3.5-4B / 9B / 27B 和 MiniCPM4.1-8B × {VerIH, nemotron_safety} × {SP-1, SP-2, SP-5, MLP, MultiMax}**；Qwen 原始 30 格 + 严格协议 20 格 + MiniCPM 10 格，共 **60 个结果文件**。
 
 核心结论：
 
 - **4B / 9B 严格协议复现完成**：MultiMax 已改用论文要求的 mid layer（4B=8，9B=16），MLP 已改用论文的 hidden dim 2048；五种方法在两个任务上共 20 个实验，与论文相差约 **0.3–2.0 pp**，总体 MAE 约 **0.92 pp**。严格结果位于 `results_strict/`。
+- **MiniCPM4.1-8B 复现完成（VerIH + nemotron_safety）**：使用 Eagle3 头；SP-1/2/5、MLP（hidden 2048）、MultiMax（mid 16）共 10 个实验，与论文相差约 **0.3–2.9 pp**，总体 **MAE 1.06 pp**。结果在 `results/{verih,nemotron_safety}_mcpm/`。
 - **27B 未能复现论文结果**：MultiMax 接近论文（VerIH +0.3 pp，nemotron +3.2 pp），但 MLP 和 SP 系统性偏低 **6.8–18.0 pp**。证据指向**论文使用的 27B checkpoint 与当前公开的 Qwen3.5-27B 不是同一个模型**：论文写 27B hidden size 为 **3584**，而公开 checkpoint 为 **5120**；4B/9B 的 hidden size（2560/4096）则与论文完全一致。
-- **数据划分仍有差异**：论文 VerIH 为 5,000/300/300、nemotron 为 10,000/500/500；本次复现沿用现有缓存的 5,729/322/323 和 10,000/400/400。公开数据加载器无法精确重建论文划分，详见 5.3。
+- **数据划分仍有差异**：论文 VerIH 为 5,000/300/300、nemotron 为 10,000/500/500；本次 Qwen 复现沿用现有缓存的 5,729/322/323 和 10,000/400/400，MiniCPM 为 5,705/322/323 和 10,000/440/439。公开数据加载器无法精确重建论文划分，详见 5.3。
 - 复现过程中发现并修复了原仓库的 **2 个代码问题**（27B OOM、MLP 被 NaN 污染），并定位了原仓库/复现脚本中的多处协议不一致。
-- 论文的 **CoT Repetition、CoT Reasoning Strategy、MiniCPM4.1-8B、PII、GPT-5.4-mini zero-shot、专用安全分类器对比、head ablation、cost 分析**均未复现。
+- 论文的 **CoT Repetition、CoT Reasoning Strategy、PII、GPT-5.4-mini zero-shot、专用安全分类器对比、head ablation、cost 分析**均未复现（MiniCPM 的 VerIH / nemotron 已完成）。
 
 ---
 
@@ -30,9 +31,9 @@
 | 维度 | 覆盖内容 |
 |---|---|
 | 任务 | VerIH（指令矛盾检测）、nemotron_safety（多语言 prompt 安全） |
-| 模型 | Qwen3.5-4B、Qwen3.5-9B、Qwen3.5-27B |
+| 模型 | Qwen3.5-4B、Qwen3.5-9B、Qwen3.5-27B；MiniCPM4.1-8B（Eagle3 头） |
 | 方法 | SP-1、SP-2、SP-5、MLP probe、MultiMax probe |
-| 结果文件 | `results/{task}_{size}/{method}/final_results.json`，共 30 个 |
+| 结果文件 | `results/{task}_{size}/{method}/`（Qwen 原始 30 个）、`results_strict/`（严格协议 20 个）、`results/{verih,nemotron_safety}_mcpm/`（MiniCPM 10 个） |
 
 ### 2.2 数据划分
 
@@ -40,6 +41,8 @@
 |---|---|---|
 | VerIH | 5,000 train / 300 val / 300 test | 5,729 train / 322 val / 323 test |
 | nemotron_safety | 10,000 train / 500 val / 500 test | 10,000 train / 400 val / 400 test |
+| VerIH（MiniCPM） | 5,000 / 300 / 300 | 5,705 / 322 / 323 |
+| nemotron_safety（MiniCPM） | 10,000 / 500 / 500 | 10,000 / 440 / 439 |
 
 ### 2.3 超参数
 
@@ -48,11 +51,13 @@
 - **MultiMax**：AdamW，lr 5e-4，batch size 32，10 epochs，H=10，MLP width 100。与论文一致。
 - **mid layer**：原始结果 4B/9B/27B 使用 **16/16/32**；严格协议复现 4B/9B 使用论文的 **8/16**（27B 仍为 32，论文 20）。
 - **27B hidden size**：本次使用的公开 checkpoint 为 **5120**；论文写的是 **3584**。
+- **MiniCPM4.1-8B**：Eagle3 头（3 层融合 [2,16,29]）；SP 用 `train_eagle3_minicpm.py`（lr 3e-4→1e-4，10 epochs，batch 1，dropout 0.2）；MLP hidden **2048**；MultiMax 使用 mid layer **16**。
 
 ### 2.4 复现命令来源
 
 - 4B/9B：`4B和9B的命令.md`
 - 27B：`run_27B.sh`（在 `4B和9B的命令.md` 基础上改写）
+- MiniCPM：`scripts/run_minicpm.sh` + 本地基座/Eagle3 命令（见 `RUN_COMMANDS.md`）
 
 ---
 
@@ -119,7 +124,8 @@
 | 27B SP-1/2/5（两任务） | ❌ 失败 | 低 6.8–16.5 pp；同样指向 27B checkpoint 不同 |
 | CoT Repetition | ⬜ 未复现 | 论文 Table 3 |
 | CoT Reasoning Strategy | ⬜ 未复现 | 论文 Table 4 |
-| MiniCPM4.1-8B | ⬜ 未复现 | 论文 Tables 2–5 中的 MiniCPM 行 |
+| MiniCPM4.1-8B SP/MLP/MM（VerIH, nemotron） | ✅ 成功 | 10 个实验，MAE 1.06 pp；Eagle3 头，数据划分有差异 |
+| MiniCPM4.1-8B CoT Repetition / Reasoning | ⬜ 未复现 | 缺少 CoT 标注数据 |
 | PII 检测 | ⬜ 未复现 | 论文 Table 1 |
 | GPT-5.4-mini zero-shot | ⬜ 未复现 | 论文 Tables 2/3/4/5 的 zero-shot 行 |
 | Qwen3Guard / Llama-Guard 对比 | ⬜ 未复现 | 论文 Table 5、Section 6.4 |
@@ -140,6 +146,25 @@
 
 相关产物：`results_verified/`（20 个重跑结果与 `summary.md`）、`results_recheck_4090_mlp/`、`results_recheck_4090_sp5/`。
 
+### 3.6 MiniCPM4.1-8B 复现结果
+
+使用论文的 Eagle3 头配置：mid layer 16、Eagle3 融合层 [2,16,29]、MLP hidden 2048、MultiMax H=10/width=100。
+
+| Task | MLP | MultiMax | SP-1 | SP-2 | SP-5 |
+|---|---|---|---|---|---|
+| VerIH | 64.71 (65.0, -0.29) | 78.33 (76.8, +1.53) | 76.78 (77.4, -0.62) | 76.16 (75.5, +0.66) | 76.78 (78.3, -1.52) |
+| nemotron | 63.78 (65.2, -1.42) | 69.93 (67.0, +2.93) | 65.15 (65.8, -0.65) | 64.46 (64.2, +0.26) | 63.78 (64.5, -0.72) |
+
+括号内为“论文值, Δ(pp)”。
+
+- **MAE = 1.06 pp**，最大偏差 2.93 pp（nemotron MultiMax）。
+- 10/10 结果无 NaN，配置检查通过。
+- 数据划分：VerIH 5,705/322/323；nemotron 10,000/440/439（论文为 5,000/300/300 和 10,000/500/500）。
+- VerIH SP-5 第一次在共享 GPU 2 上 OOM，改到 GPU 4 重跑后完成。
+- **CoT Repetition / CoT Reasoning Strategy 未跑**：`cot_inconsistency/data/` 为空，需要先用 GPT 生成并标注数据。
+
+结果目录：`results/verih_mcpm/{sp1,sp2,sp5,mlp,multimax}/`、`results/nemotron_safety_mcpm/...`。
+
 ---
 
 ## 4. 复现成功了什么
@@ -148,8 +173,9 @@
 2. **4B/9B 的 MLP probe 在论文 hidden dim 2048 下复现成功**：误差 0.3–2.0 pp。
 3. **4B/9B 的 MultiMax 在论文 mid layer 8/16 下复现成功**：VerIH 90.71/92.26，nemotron 78.50/79.75；与论文相差 0.6–2.0 pp。这说明 MultiMax 实现和 mid-layer 特征提取正确。
 4. **27B MultiMax 在修正缓存后接近论文**：VerIH 93.8（论文 93.5），nemotron 81.0（论文 77.8）。但 27B 的 mid layer 是 32（论文 20），且 checkpoint 不同，只能作参考。
-5. **完整流水线可运行，并通过独立重跑校验**：模型下载、MTP 头提取、hidden-state 缓存、五种方法训练、结果落盘、验证集选 epoch、测试集评估全部跑通；原始 30/30 + 严格协议 20/20 结果文件齐全。用 `run_4b_9b_all.sh` 独立重跑 20 个严格实验，17/20 在 2 pp 内，3 个跨 GPU 偏差在 RTX 4090 上复核后全部通过（详见 3.5）。
-6. **修复后的代码经过验证**：27B OOM 修复后做了 1-epoch 冒烟测试；修复后 SP-1 的 Epoch 1 验证集准确率与官方结果逐位一致（0.7298136645962733），证明快照修复不影响训练数值。
+5. **MiniCPM4.1-8B 的 10 个实验复现成功**：SP-1/2/5、MLP（hidden 2048）、MultiMax（mid 16）在 VerIH/nemotron 上与论文相差 0.3–2.9 pp，MAE 1.06 pp；Eagle3 融合层 [2,16,29] 与论文一致。
+6. **完整流水线可运行，并通过独立重跑校验**：模型下载、MTP 头提取、hidden-state 缓存、五种方法训练、结果落盘、验证集选 epoch、测试集评估全部跑通；原始 30/30 + 严格协议 20/20 + MiniCPM 10/10 结果文件齐全。用 `run_4b_9b_all.sh` 独立重跑 20 个严格实验，17/20 在 2 pp 内，3 个跨 GPU 偏差在 RTX 4090 上复核后全部通过（详见 3.5）。
+7. **修复后的代码经过验证**：27B OOM 修复后做了 1-epoch 冒烟测试；修复后 SP-1 的 Epoch 1 验证集准确率与官方结果逐位一致（0.7298136645962733），证明快照修复不影响训练数值。
 
 ---
 
@@ -202,9 +228,9 @@
 
 ### 5.4 论文其余实验未复现
 
-- CoT Repetition（Table 3）
-- CoT Reasoning Strategy（Table 4）
-- MiniCPM4.1-8B（Eagle3 头；Tables 2–5 的 MiniCPM 行）
+- CoT Repetition（Table 3；Qwen 和 MiniCPM 均未跑）
+- CoT Reasoning Strategy（Table 4；Qwen 和 MiniCPM 均未跑）
+- MiniCPM 的 CoT 两任务（Eagle3 头；VerIH/nemotron 已完成）
 - PII 检测（Table 1）
 - GPT-5.4-mini zero-shot（Tables 2–5 的 zero-shot 行）
 - Qwen3Guard-Gen-8B / Llama-Guard-3-8B 对比
@@ -250,6 +276,12 @@
 - 公开仓库的 `scripts/run_qwen.sh` 与论文描述不一致（见第 8 节），无法直接产出论文表格。
 - 论文 27B checkpoint（d=3584）在公开 HuggingFace 上没有找到对应版本；本地下载的 Qwen3.5-27B 为 d=5120。
 - 未能获得论文的精确 27B checkpoint，因此 27B 的失败无法通过调参解决。
+
+### 6.7 MiniCPM 的环境与显存问题
+
+- MiniCPM 的远程代码 `modeling_minicpm.py` 使用 `is_torch_fx_available`，该符号在 transformers 5.x 已移除，直接 ImportError。新增 `fast_softprompt/minicpm_compat.py` shim（补回为返回 False），无需降级 transformers。
+- `precompute_hidden_states_minicpm.py` 原来硬编码 `openbmb/MiniCPM4.1-8B`；新增 `--base_model` 以使用本地 `models/MiniCPM4.1-8B`（离线）。
+- VerIH SP-5 第一次在共享 GPU 2 上 OOM（其他用户占用约 42 GB）；改到 GPU 4 重跑成功。
 
 ---
 
@@ -314,6 +346,13 @@
 - `cache_verih_4b_mid8.pt`、`cache_nemotron_safety_4b_mid8.pt`：4B 的 mid-layer 8 缓存（论文要求 layer 8）。
 - `fast_softprompt/precompute_mid_from_cache.py`：从现有缓存重新提取指定 mid layer 的工具。
 - 原仓库代码没有再新增修改；严格复现只改变了 MultiMax 的输入缓存和 MLP 的 `--hidden_dim` 参数。
+
+### 7.7 MiniCPM 复现新增修改
+
+- `fast_softprompt/minicpm_compat.py`：补回 transformers 5.x 移除的 `is_torch_fx_available`。
+- `fast_softprompt/precompute_hidden_states_minicpm.py`：新增 `--base_model`，支持本地基座模型。
+- `fast_softprompt/train_eagle3_minicpm.py`：导入兼容 shim。
+- 未修改 `scripts/run_minicpm.sh`；实际运行命令使用 MLP `--hidden_dim 2048`、MultiMax `--mmap_cache`，见 `RUN_COMMANDS.md`。
 
 ---
 
@@ -404,6 +443,25 @@
 16. **脚本没有固定 GPU**
     - 在共享服务器上容易落到被其他用户占满的 GPU 0，导致 OOM 或训练中断。建议 `CUDA_VISIBLE_DEVICES` 显式指定。
 
+### 8.4 MiniCPM 相关的问题
+
+17. **MiniCPM 远程代码与 transformers 5.x 不兼容（严重）**
+    - `modeling_minicpm.py` 导入 `is_torch_fx_available`，该符号已被移除；`trust_remote_code` 加载直接失败。
+    - 需要兼容 shim（本复现新增 `minicpm_compat.py`）或固定旧版 transformers。
+
+18. **`scripts/run_minicpm.sh` 未对齐论文超参/缓存使用（中等）**
+    - MLP 没有传 `--hidden_dim 2048`（默认 1024）。
+    - MultiMax 没有传 `--mmap_cache`，会完整加载 12 GB+ 的 mid 缓存；本复现手动加了该参数。
+    - 预计算脚本原来没有 `--base_model`，只能走 HF id/在线加载；本复现新增了本地路径参数。
+
+19. **MiniCPM 的数据划分与论文不一致（中等）**
+    - 脚本用 `--num_test 1000`，但 VerIH loader 忽略该参数，nemotron 在 `max_length=2048` 下实际得到 879 个 test（不同 random 状态可能略有差异）。
+    - 论文是 5,000/300/300 和 10,000/500/500；本复现实际为 5,705/322/323 和 10,000/440/439。
+
+20. **MiniCPM 缓存体积较大（轻微）**
+    - VerIH Eagle3 cache 约 38 GB，nemotron 约 42 GB；三个缓存合计每任务 50–60 GB。
+    - 需要预留磁盘；本机 4.9 TB 空闲，足够。
+
 ---
 
 ## 9. 结论与建议
@@ -412,6 +470,7 @@
 
 - **4B/9B 的严格协议复现已完成**：MultiMax 使用论文的 mid layer（4B=8，9B=16），MLP 使用论文的 hidden dim 2048；20 个实验与论文相差约 0.3–2.0 pp（总体 MAE 约 0.92 pp）。严格结果在 `results_strict/`；数据划分仍有差异（见 5.3）。
 - **独立重跑一致性已确认**：20 个严格实验重跑后 17/20 在 2 pp 内（总体 MAE 0.627 pp）；3 个跨 GPU 偏差在 RTX 4090 上复核后全部通过（MLP Δ=0.00，4B SP-5 Δ=+1.50 pp），说明结果可复现，差异来自 GPU 架构而非实验错误。
+- **MiniCPM4.1-8B 的 VerIH/nemotron 复现完成**：10 个实验，MAE 1.06 pp，最大偏差 2.93 pp；Eagle3 头与论文一致。CoT 两任务未跑。
 - **27B 的结果不能作为论文 27B 的复现**：当前公开 27B checkpoint（d=5120）与论文（d=3584）不同，MLP/SP 系统性偏低。
 - **27B MultiMax 的数值接近论文**，但 mid layer 32 与论文 20 不同，且受 27B checkpoint 差异影响，只能作为参考。
 
@@ -420,7 +479,7 @@
 1. **获取论文的 27B checkpoint（d=3584）**：检查 HuggingFace `Qwen/Qwen3.5-27B` 在 2026 年 8 月前后的 revision，或联系论文作者确认。拿到后重新提取 MTP 头、重建缓存、重跑 27B 的 SP/MLP。
 2. **27B 的严格协议**：4B/9B 已完成（MultiMax layer 8/16，MLP hidden 2048）；27B 仍需 mid layer 20（当前 32）和论文的 d=3584 checkpoint；MLP hidden 2048 只有在拿到论文 checkpoint 后才有意义。
 3. **数据划分**：4B/9B 的严格结果仍使用现有缓存划分（5,729/322/323、10,000/400/400）；如需完全对齐论文的 5,000/300/300 和 10,000/500/500，需要重建数据缓存（公开 loader 无法精确重建，见 5.3）。
-4. **补做未复现实验**：CoT Repetition、CoT Reasoning Strategy、MiniCPM4.1-8B、PII、GPT-5.4-mini zero-shot、Qwen3Guard/Llama-Guard 对比、head ablation、cost 分析。
+4. **补做未复现实验**：CoT Repetition、CoT Reasoning Strategy（Qwen + MiniCPM）、PII、GPT-5.4-mini zero-shot、Qwen3Guard/Llama-Guard 对比、head ablation、cost 分析。
 5. **保留本报告的代码修复**：它们只影响显存/健壮性，不改变 4B/9B 的训练数值；建议向原仓库提 PR。
 
 ---
@@ -452,6 +511,16 @@ results_strict/
 ```
 
 共 20 个；SP 结果从 `results/` 复制（超参与论文一致，数据划分未变）。
+
+MiniCPM 结果（Eagle3 头）：
+
+```text
+results/
+├── verih_mcpm/{sp1,sp2,sp5,mlp,multimax}/final_results.json
+└── nemotron_safety_mcpm/{sp1,sp2,sp5,mlp,multimax}/final_results.json
+```
+
+共 10 个。缓存：`cache_{verih,nemotron_safety}_mcpm.pt`、`_mid.pt`、`_eagle3.pt`。
 
 ### 10.2 关键命令
 
@@ -485,6 +554,35 @@ results_strict/
     --cache cache_verih_4b.pt --mmap_cache \
     --output_dir results_strict/verih_4b/mlp --hidden_dim 2048 \
     --lr 5e-4 --epochs 10 --batch_size 32 --target_eval 645
+  ```
+- MiniCPM4.1-8B（Eagle3 头，本地基座/E3DIR）：
+  ```bash
+  export BASE=models/MiniCPM4.1-8B
+  export E3DIR=models/MiniCPM4.1-8B-Eagle3/MiniCPM4_1-8B-Eagle3-bf16
+
+  # 预计算（VerIH；nemotron 换 --task/output_prefix）
+  HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python fast_softprompt/precompute_hidden_states_minicpm.py \
+    --task verih --output_prefix cache_verih_mcpm --base_model "$BASE" \
+    --num_train 10000 --num_test 1000 --max_length 2048 --batch_size 2
+
+  # SP-1/2/5（VerIH；nemotron 换 cache/target）
+  python fast_softprompt/train_eagle3_minicpm.py \
+    --cache cache_verih_mcpm_eagle3.pt --mmap_cache \
+    --eagle3_dir "$E3DIR" --base_model "$BASE" \
+    --output_dir results/verih_mcpm/sp5 --soft_prompt_length 5 \
+    --epochs 10 --batch_size 1 --dropout 0.2 --target_eval 645
+
+  # MLP（hidden 2048）
+  python fast_softprompt/train_mlp.py \
+    --cache cache_verih_mcpm.pt --mmap_cache \
+    --output_dir results/verih_mcpm/mlp --hidden_dim 2048 \
+    --lr 5e-4 --epochs 10 --batch_size 32 --target_eval 645
+
+  # MultiMax（mid 16）
+  python fast_softprompt/train_multimax.py \
+    --cache cache_verih_mcpm_mid.pt --mmap_cache \
+    --output_dir results/verih_mcpm/multimax \
+    --num_heads 10 --mlp_width 100 --lr 5e-4 --epochs 10 --batch_size 32 --target_eval 645
   ```
 
 ### 10.3 参考

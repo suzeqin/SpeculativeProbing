@@ -34,6 +34,7 @@ from tqdm import tqdm
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+import minicpm_compat  # noqa: E402  (transformers 5.x remote-code shim)
 from minicpm_eagle3_wrapper import from_minicpm_eagle3_checkpoint
 
 RANDOM_SEED = 42

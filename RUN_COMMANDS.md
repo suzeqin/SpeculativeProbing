@@ -1,6 +1,6 @@
 # 实验运行命令说明
 
-本文档列出生成 `results/`（原始结果）和 `results_strict/`（4B/9B 严格协议结果）中每个实验的命令。所有命令都从仓库根目录执行。
+本文档列出生成 `results/`（原始 Qwen 结果 + MiniCPM 结果）和 `results_strict/`（4B/9B 严格协议结果）中每个实验的命令。所有命令都从仓库根目录执行。
 
 **环境**：`conda activate sp`；Python 3.10.22；PyTorch 2.8.0+cu126；Transformers 5.20.2。  
 **仓库**：`/data1/suzeqin/SpeculativeProbing`  
@@ -298,6 +298,63 @@ for TAG in 4b 9b; do
 done
 ```
 
+### 3.5 MiniCPM4.1-8B（Eagle3 头）
+
+前置：
+
+- 基座：`models/MiniCPM4.1-8B`
+- Eagle3：`models/MiniCPM4.1-8B-Eagle3/MiniCPM4_1-8B-Eagle3-bf16`
+- transformers 5.x 需要 `fast_softprompt/minicpm_compat.py`（预计算/训练脚本已自动导入）
+
+预计算（VerIH 和 nemotron 各一次）：
+
+```bash
+export BASE=models/MiniCPM4.1-8B
+export E3DIR=models/MiniCPM4.1-8B-Eagle3/MiniCPM4_1-8B-Eagle3-bf16
+
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python fast_softprompt/precompute_hidden_states_minicpm.py \
+  --task verih --output_prefix cache_verih_mcpm --base_model "$BASE" \
+  --num_train 10000 --num_test 1000 --max_length 2048 --batch_size 2
+
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python fast_softprompt/precompute_hidden_states_minicpm.py \
+  --task nemotron_safety --output_prefix cache_nemotron_safety_mcpm --base_model "$BASE" \
+  --num_train 10000 --num_test 1000 --max_length 2048 --batch_size 2
+```
+
+SP-1/2/5（以 VerIH 为例；nemotron 换 cache 和 `--target_eval 800`）：
+
+```bash
+for k in 1 2 5; do
+  python fast_softprompt/train_eagle3_minicpm.py \
+    --cache cache_verih_mcpm_eagle3.pt --mmap_cache \
+    --eagle3_dir "$E3DIR" --base_model "$BASE" \
+    --output_dir "results/verih_mcpm/sp${k}" \
+    --soft_prompt_length "$k" --epochs 10 --batch_size 1 \
+    --dropout 0.2 --target_eval 645
+done
+```
+
+MLP（hidden dim 2048）：
+
+```bash
+python fast_softprompt/train_mlp.py \
+  --cache cache_verih_mcpm.pt --mmap_cache \
+  --output_dir results/verih_mcpm/mlp --hidden_dim 2048 \
+  --lr 5e-4 --epochs 10 --batch_size 32 --target_eval 645
+```
+
+MultiMax（mid layer 16，必须用 `_mid.pt` 和 `--mmap_cache`）：
+
+```bash
+python fast_softprompt/train_multimax.py \
+  --cache cache_verih_mcpm_mid.pt --mmap_cache \
+  --output_dir results/verih_mcpm/multimax \
+  --num_heads 10 --mlp_width 100 \
+  --lr 5e-4 --epochs 10 --batch_size 32 --target_eval 645
+```
+
+实际划分：VerIH 5,705/322/323；nemotron 10,000/440/439（论文为 5,000/300/300 和 10,000/500/500）。CoT 两个任务未跑（缺少标注数据）。
+
 ---
 
 ## 4. 结果路径 → 生成命令
@@ -314,6 +371,9 @@ done
 | `results_strict/{verih,nemotron_safety}_{4b,9b}/mlp` | §3.2 | `hidden_dim=2048` |
 | `results_strict/{verih,nemotron_safety}_{4b,9b}/multimax` | §3.3 | 4B layer 8，9B layer 16 |
 | `results_strict/{verih,nemotron_safety}_{4b,9b}/sp{1,2,5}` | §3.4 复制；原始命令是 §2.2 | 不是重跑 |
+| `results/{verih,nemotron_safety}_mcpm/sp{1,2,5}` | §3.5 SP | Eagle3 头 |
+| `results/{verih,nemotron_safety}_mcpm/mlp` | §3.5 MLP | `hidden_dim=2048` |
+| `results/{verih,nemotron_safety}_mcpm/multimax` | §3.5 MultiMax | mid layer 16，`_mid` 缓存 |
 
 ---
 
@@ -324,6 +384,9 @@ done
 3. **`run_27B.sh` 的 `MID_CACHE` 修复**：原始脚本给 `train_multimax.py` 传主缓存；最终 27B MultiMax 结果是用 `_mid` 缓存重跑的。
 4. **27B 的 MLP/SP 不是论文 27B 的严格复现**：论文 27B hidden size 为 3584，公开 checkpoint 为 5120；相关结果只能作为当前公开模型的参考。
 5. **27B MultiMax 的 mid layer 是 32**（论文为 20），因此 27B MultiMax 也不是严格协议。
+6. **MiniCPM 依赖 `fast_softprompt/minicpm_compat.py`**：transformers 5.x 移除了 `is_torch_fx_available`，没有该 shim 时 MiniCPM 远程代码会 ImportError。
+7. **MiniCPM 数据划分**：VerIH 5,705/322/323；nemotron 10,000/440/439；论文为 5,000/300/300 和 10,000/500/500。
+8. **MiniCPM 的 CoT 两个任务未跑**：`cot_inconsistency/data/` 为空，需要先生成/标注数据。
 6. **4B/9B 严格结果**已完成 MultiMax layer 8/16 和 MLP hidden 2048；唯一剩余差异是数据划分（论文 5,000/300/300、10,000/500/500；本复现 5,729/322/323、10,000/400/400）。
 7. **27B SP-5 VerIH** 曾被后台会话中断一次，由 watchdog 用同一条命令重启；最终结果来自重启后的完整训练。
 8. 原始 4B/9B 的 MultiMax 结果使用主缓存，数值接近论文但协议不对；严格结果见 `results_strict/`。
