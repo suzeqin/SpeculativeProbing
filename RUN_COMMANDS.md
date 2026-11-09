@@ -4,6 +4,8 @@
 
 > **清理说明（2026-11-09）**：已删除 27B 全部产物、原始 4B/9B 非严格结果和未使用的 4B layer-16 mid 缓存。本文档中的原始/27B 命令保留作为重建参考；最终表格对应的命令见 §3.2（严格 MLP）、§3.3（严格 MultiMax）和 §3.5（MiniCPM）。
 
+> **一键复现**：`bash run_all_repro.sh --gpus 0,5,6,3`。默认把 30 个结果写入 `results2/`，并与 `results/` 自动校验（默认容差 3 pp）。
+
 **环境**：`conda activate sp`；Python 3.10.22；PyTorch 2.8.0+cu126；Transformers 5.20.2。  
 **仓库**：`/data1/suzeqin/SpeculativeProbing`  
 **GPU**：示例中的 `CUDA_VISIBLE_DEVICES` 可按空闲 GPU 替换；原始 4B/9B 命令没有固定 GPU，27B 训练最后使用 GPU 4。
@@ -55,7 +57,7 @@ python extract_qwen35_mtp.py --src models/Qwen3.5-27B --dst models/Qwen3.5-27B-m
 
 ### 2.1 4B/9B 原始 hidden-state 缓存（mid layer 16）
 
-来自 `4B和9B的命令.md`。注意：对 VerIH，`load_verih_data()` 会忽略 `--num_train/--num_test`；nemotron 会使用这两个参数。
+来自原始 4B/9B 复现流程（历史命令文件已删除；命令保留如下）。注意：对 VerIH，`load_verih_data()` 会忽略 `--num_train/--num_test`；nemotron 会使用这两个参数。
 
 ```bash
 for spec in \
@@ -146,7 +148,7 @@ done
 
 ### 2.3 27B 原始 hidden-state 缓存（mid layer 32）
 
-来自 `run_27B.sh`。27B 的 `MID_LAYER` 由脚本按 `num_hidden_layers/2 = 64/2 = 32` 计算。
+来自 27B 复现流程（原脚本已删除；命令保留如下）。27B 的 `MID_LAYER` 原按 `num_hidden_layers/2 = 64/2 = 32` 计算。
 
 ```bash
 python fast_softprompt/precompute_hidden_states.py \
@@ -202,7 +204,7 @@ python fast_softprompt/train_mlp.py \
   --lr 5e-4 --epochs 10 --batch_size 32 --target_eval 800
 ```
 
-**MultiMax**（`results/{task}_27b/multimax`）：原始 `run_27B.sh` 曾误用主缓存；下面是用 `_mid` 缓存重跑、最终写入结果的命令。注意 27B 的 mid layer 是 32，论文是 20。
+**MultiMax**（`results/{task}_27b/multimax`）：原始 27B 流程曾误用主缓存；下面是用 `_mid` 缓存重跑、最终写入结果的命令。注意 27B 的 mid layer 是 32，论文是 20。
 
 ```bash
 python fast_softprompt/train_multimax.py \
@@ -368,7 +370,7 @@ python fast_softprompt/train_multimax.py \
 
 1. **`fast_softprompt/train_softprompt.py` 的 best-state 修复**必须存在，否则 27B 在 Epoch 2 刷新 best 时可能 OOM（原代码在 GPU 上克隆整个冻结 MTP 头）。该修复不影响训练数值。
 2. **`fast_softprompt/train_mlp.py` 的非有限 loss 保护**必须存在，否则 27B nemotron 缓存中的 NaN 样本会污染整个 MLP，得到 val 0.5 / F1 0。本报告中的 27B nemotron MLP 结果是在该保护下重跑的。
-3. **`run_27B.sh` 的 `MID_CACHE` 修复**：原始脚本给 `train_multimax.py` 传主缓存；最终 27B MultiMax 结果是用 `_mid` 缓存重跑的。
+3. **原 27B 脚本的 `MID_CACHE` 修复（脚本已删除）**：原始脚本给 `train_multimax.py` 传主缓存；最终 27B MultiMax 结果是用 `_mid` 缓存重跑的。
 4. **27B 的 MLP/SP 不是论文 27B 的严格复现**：论文 27B hidden size 为 3584，公开 checkpoint 为 5120；相关结果只能作为当前公开模型的参考。
 5. **27B MultiMax 的 mid layer 是 32**（论文为 20），因此 27B MultiMax 也不是严格协议。
 6. **MiniCPM 依赖 `fast_softprompt/minicpm_compat.py`**：transformers 5.x 移除了 `is_torch_fx_available`，没有该 shim 时 MiniCPM 远程代码会 ImportError。
