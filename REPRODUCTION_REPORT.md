@@ -7,6 +7,8 @@
 **复现环境**：Linux；Python 3.10.22；PyTorch 2.8.0+cu126；Transformers 5.20.2；conda 环境 `sp`  
 **硬件**：8× GPU（RTX 4090 / RTX A6000，48 GB），共享服务器
 
+> **清理/整合说明（2026-11-09）**：已删除与最终表格无关的产物：Qwen3.5-27B 的模型/结果/缓存、原始 4B/9B 非严格结果、未使用的 4B layer-16 mid 缓存。`results_strict/` 已合并进 `results/`；验证/复核目录（`results_verified/`、`results_recheck_4090_mlp/`、`results_recheck_4090_sp5/`）已按要求删除。当前 `results/` 只包含最终表格的 30 个结果（Qwen 4B/9B 严格 20 + MiniCPM 10）。报告中的原始 4B/9B 和 27B 数值仅作历史分析记录。
+
 ---
 
 ## 1. 执行摘要
@@ -15,7 +17,7 @@
 
 核心结论：
 
-- **4B / 9B 严格协议复现完成**：MultiMax 已改用论文要求的 mid layer（4B=8，9B=16），MLP 已改用论文的 hidden dim 2048；五种方法在两个任务上共 20 个实验，与论文相差约 **0.3–2.0 pp**，总体 MAE 约 **0.92 pp**。严格结果位于 `results_strict/`。
+- **4B / 9B 严格协议复现完成**：MultiMax 已改用论文要求的 mid layer（4B=8，9B=16），MLP 已改用论文的 hidden dim 2048；五种方法在两个任务上共 20 个实验，与论文相差约 **0.3–2.0 pp**，总体 MAE 约 **0.92 pp**。严格结果位于 `results/`。
 - **MiniCPM4.1-8B 复现完成（VerIH + nemotron_safety）**：使用 Eagle3 头；SP-1/2/5、MLP（hidden 2048）、MultiMax（mid 16）共 10 个实验，与论文相差约 **0.3–2.9 pp**，总体 **MAE 1.06 pp**。结果在 `results/{verih,nemotron_safety}_mcpm/`。
 - **27B 未能复现论文结果**：MultiMax 接近论文（VerIH +0.3 pp，nemotron +3.2 pp），但 MLP 和 SP 系统性偏低 **6.8–18.0 pp**。证据指向**论文使用的 27B checkpoint 与当前公开的 Qwen3.5-27B 不是同一个模型**：论文写 27B hidden size 为 **3584**，而公开 checkpoint 为 **5120**；4B/9B 的 hidden size（2560/4096）则与论文完全一致。
 - **数据划分仍有差异**：论文 VerIH 为 5,000/300/300、nemotron 为 10,000/500/500；本次 Qwen 复现沿用现有缓存的 5,729/322/323 和 10,000/400/400，MiniCPM 为 5,705/322/323 和 10,000/440/439。公开数据加载器无法精确重建论文划分，详见 5.3。
@@ -33,7 +35,7 @@
 | 任务 | VerIH（指令矛盾检测）、nemotron_safety（多语言 prompt 安全） |
 | 模型 | Qwen3.5-4B、Qwen3.5-9B、Qwen3.5-27B；MiniCPM4.1-8B（Eagle3 头） |
 | 方法 | SP-1、SP-2、SP-5、MLP probe、MultiMax probe |
-| 结果文件 | `results/{task}_{size}/{method}/`（Qwen 原始 30 个）、`results_strict/`（严格协议 20 个）、`results/{verih,nemotron_safety}_mcpm/`（MiniCPM 10 个） |
+| 结果文件 | `results/{task}_{size}/{method}/`（Qwen 4B/9B 严格协议 20 个 + MiniCPM 10 个，共 30 个） |
 
 ### 2.2 数据划分
 
@@ -62,6 +64,8 @@
 ---
 
 ## 3. 复现结果
+
+> 注：3.1/3.2 是原始协议（非严格）的历史对照；相关 `results/` 文件已在 2026-11-09 清理。最终表格见 3.3（Qwen 4B/9B 严格）和 3.6（MiniCPM）。
 
 ### 3.1 VerIH（accuracy %，括号内为相对论文的 Δ）
 
@@ -110,7 +114,7 @@
 - 9B nemotron MultiMax：77.8（主缓存）→ **79.75**（layer 16），论文 80.5，明显更接近。
 - MLP 改为 hidden 2048 后，4B/9B 两个任务与论文的误差均在 2 pp 内。
 
-**严格结果目录**：`results_strict/{task}_{size}/{method}/final_results.json`（20 个）。其中 SP-1/2/5 是从 `results/` 原样复制的（超参数已与论文一致，未重跑），只有 MLP（hidden 2048）和 MultiMax（mid layer 8/16）是新训练；来源说明见 `results_strict/README.md`。
+**严格结果目录**：`results/{task}_{size}/{method}/final_results.json`（20 个）。其中 SP-1/2/5 是原样复制的（超参数已与论文一致，未重跑），只有 MLP（hidden 2048）和 MultiMax（mid layer 8/16）是新训练；来源说明见 `results/README.md`。
 
 ### 3.4 复现状态矩阵
 
@@ -133,7 +137,7 @@
 
 ### 3.5 独立重跑一致性检查
 
-为了确认结果可复现，使用 `run_4b_9b_all.sh` / `reproduce_4b_9b.py` 把 4B/9B 的 20 个实验完整重跑了一遍，输出到 `results_verified/`，并与 `results_strict/` 逐项比较（容差 2 pp）。
+为了确认结果可复现，使用 `run_4b_9b_all.sh` / `reproduce_4b_9b.py` 把 4B/9B 的 20 个实验完整重跑了一遍，并与 `results/` 逐项比较（容差 2 pp）。验证产物已按要求删除，结论保留。
 
 - **20/20 结果全部生成**，文件/JSON/配置/NaN 检查全部通过。
 - **17/20 在 2 pp 内**；总体 **MAE = 0.627 pp**，最大偏差 2.75 pp，平均有符号偏差 +0.397 pp。
@@ -144,7 +148,7 @@
 
 结论：4B/9B 的结果在同一 GPU 架构下可复现；跨架构（RTX 4090 vs A6000）会产生约 2–3 pp 的训练/测试波动，主要因为测试集较小（nemotron 400 个样本，1 个样本 = 0.25 pp）以及不同 GPU 的浮点/kernel 差异。若要追求逐位一致，应固定 GPU 型号和 CUDA/cuBLAS 版本。
 
-相关产物：`results_verified/`（20 个重跑结果与 `summary.md`）、`results_recheck_4090_mlp/`、`results_recheck_4090_sp5/`。
+验证/复核目录（`results_verified/`、`results_recheck_4090_mlp/`、`results_recheck_4090_sp5/`）已按要求删除；本节保留校验结论。
 
 ### 3.6 MiniCPM4.1-8B 复现结果
 
@@ -174,7 +178,7 @@
 3. **4B/9B 的 MultiMax 在论文 mid layer 8/16 下复现成功**：VerIH 90.71/92.26，nemotron 78.50/79.75；与论文相差 0.6–2.0 pp。这说明 MultiMax 实现和 mid-layer 特征提取正确。
 4. **27B MultiMax 在修正缓存后接近论文**：VerIH 93.8（论文 93.5），nemotron 81.0（论文 77.8）。但 27B 的 mid layer 是 32（论文 20），且 checkpoint 不同，只能作参考。
 5. **MiniCPM4.1-8B 的 10 个实验复现成功**：SP-1/2/5、MLP（hidden 2048）、MultiMax（mid 16）在 VerIH/nemotron 上与论文相差 0.3–2.9 pp，MAE 1.06 pp；Eagle3 融合层 [2,16,29] 与论文一致。
-6. **完整流水线可运行，并通过独立重跑校验**：模型下载、MTP 头提取、hidden-state 缓存、五种方法训练、结果落盘、验证集选 epoch、测试集评估全部跑通；原始 30/30 + 严格协议 20/20 + MiniCPM 10/10 结果文件齐全。用 `run_4b_9b_all.sh` 独立重跑 20 个严格实验，17/20 在 2 pp 内，3 个跨 GPU 偏差在 RTX 4090 上复核后全部通过（详见 3.5）。
+6. **完整流水线可运行，并通过独立重跑校验**：模型下载、MTP 头提取、hidden-state 缓存、五种方法训练、结果落盘、验证集选 epoch、测试集评估全部跑通；严格协议 20/20 + MiniCPM 10/10 结果文件保留（原始 30 个历史结果已于 2026-11-09 清理）。用 `run_4b_9b_all.sh` 独立重跑 20 个严格实验，17/20 在 2 pp 内，3 个跨 GPU 偏差在 RTX 4090 上复核后全部通过（详见 3.5）。
 7. **修复后的代码经过验证**：27B OOM 修复后做了 1-epoch 冒烟测试；修复后 SP-1 的 Epoch 1 验证集准确率与官方结果逐位一致（0.7298136645962733），证明快照修复不影响训练数值。
 
 ---
@@ -342,7 +346,7 @@
 
 ### 7.6 严格复现新增产物
 
-- `results_strict/{task}_{size}/{method}/final_results.json`：4B/9B 在论文协议下的严格结果（20 个）。
+- `results/{task}_{size}/{method}/final_results.json`：4B/9B 在论文协议下的严格结果（20 个）。
 - `cache_verih_4b_mid8.pt`、`cache_nemotron_safety_4b_mid8.pt`：4B 的 mid-layer 8 缓存（论文要求 layer 8）。
 - `fast_softprompt/precompute_mid_from_cache.py`：从现有缓存重新提取指定 mid layer 的工具。
 - 原仓库代码没有再新增修改；严格复现只改变了 MultiMax 的输入缓存和 MLP 的 `--hidden_dim` 参数。
@@ -468,7 +472,7 @@
 
 ### 9.1 可以使用的结论
 
-- **4B/9B 的严格协议复现已完成**：MultiMax 使用论文的 mid layer（4B=8，9B=16），MLP 使用论文的 hidden dim 2048；20 个实验与论文相差约 0.3–2.0 pp（总体 MAE 约 0.92 pp）。严格结果在 `results_strict/`；数据划分仍有差异（见 5.3）。
+- **4B/9B 的严格协议复现已完成**：MultiMax 使用论文的 mid layer（4B=8，9B=16），MLP 使用论文的 hidden dim 2048；20 个实验与论文相差约 0.3–2.0 pp（总体 MAE 约 0.92 pp）。严格结果在 `results/`；数据划分仍有差异（见 5.3）。
 - **独立重跑一致性已确认**：20 个严格实验重跑后 17/20 在 2 pp 内（总体 MAE 0.627 pp）；3 个跨 GPU 偏差在 RTX 4090 上复核后全部通过（MLP Δ=0.00，4B SP-5 Δ=+1.50 pp），说明结果可复现，差异来自 GPU 架构而非实验错误。
 - **MiniCPM4.1-8B 的 VerIH/nemotron 复现完成**：10 个实验，MAE 1.06 pp，最大偏差 2.93 pp；Eagle3 头与论文一致。CoT 两任务未跑。
 - **27B 的结果不能作为论文 27B 的复现**：当前公开 27B checkpoint（d=5120）与论文（d=3584）不同，MLP/SP 系统性偏低。
@@ -488,43 +492,30 @@
 
 ### 10.1 结果文件
 
-```
+**最终表格对应的结果（2026-11-09 整合）：**
+
+```text
 results/
 ├── verih_4b/{sp1,sp2,sp5,mlp,multimax}/final_results.json
 ├── verih_9b/{sp1,sp2,sp5,mlp,multimax}/final_results.json
-├── verih_27b/{sp1,sp2,sp5,mlp,multimax}/final_results.json
 ├── nemotron_safety_4b/{sp1,sp2,sp5,mlp,multimax}/final_results.json
 ├── nemotron_safety_9b/{sp1,sp2,sp5,mlp,multimax}/final_results.json
-└── nemotron_safety_27b/{sp1,sp2,sp5,mlp,multimax}/final_results.json
-```
-
-共 30 个 `final_results.json`。
-
-严格协议结果（4B/9B，MultiMax mid layer 8/16 + MLP hidden 2048）：
-
-```text
-results_strict/
-├── verih_4b/{sp1,sp2,sp5,mlp,multimax}/final_results.json
-├── verih_9b/{sp1,sp2,sp5,mlp,multimax}/final_results.json
-├── nemotron_safety_4b/{sp1,sp2,sp5,mlp,multimax}/final_results.json
-└── nemotron_safety_9b/{sp1,sp2,sp5,mlp,multimax}/final_results.json
-```
-
-共 20 个；SP 结果从 `results/` 复制（超参与论文一致，数据划分未变）。
-
-MiniCPM 结果（Eagle3 头）：
-
-```text
-results/
 ├── verih_mcpm/{sp1,sp2,sp5,mlp,multimax}/final_results.json
 └── nemotron_safety_mcpm/{sp1,sp2,sp5,mlp,multimax}/final_results.json
 ```
 
-共 10 个。缓存：`cache_{verih,nemotron_safety}_mcpm.pt`、`_mid.pt`、`_eagle3.pt`。
+共 30 个：Qwen 4B/9B 严格 20 个 + MiniCPM 10 个。
+
+**清理/整合说明**：原始 4B/9B 非严格结果、27B 全部结果/缓存/权重、未使用的 4B layer-16 mid 缓存已于 2026-11-09 删除；`results_strict/` 已合并进 `results/`；验证/复核目录（`results_verified/`、`results_recheck_4090_mlp/`、`results_recheck_4090_sp5/`）已按要求删除。历史数值只在报告正文中保留作对照。
+
+**表格所需的缓存/模型**：
+
+- 缓存：`cache_{verih,nemotron_safety}_{4b,9b}.pt`、`cache_*_4b_mid8.pt`、`cache_*_9b_mid.pt`、`cache_*_mcpm*.pt`
+- 模型：`models/Qwen3.5-4B`、`models/Qwen3.5-4B-mtp`、`models/Qwen3.5-9B`、`models/Qwen3.5-9B-mtp`、`models/MiniCPM4.1-8B`、`models/MiniCPM4.1-8B-Eagle3`
 
 ### 10.2 关键命令
 
-完整的结果级命令（覆盖 `results/` 和 `results_strict/` 的每一组结果）见 `RUN_COMMANDS.md`；下面只列关键命令。
+完整的结果级命令（覆盖 `results/` 的每一组结果）见 `RUN_COMMANDS.md`；下面只列关键命令。
 
 - 4B/9B：见 `4B和9B的命令.md`。
 - 27B：见 `run_27B.sh`（已包含 MultiMax `_mid` 缓存修复和断点续跑逻辑）。
@@ -540,19 +531,19 @@ results/
   # 9B MultiMax（论文 mid layer 16）
   python fast_softprompt/train_multimax.py \
     --cache cache_verih_9b_mid.pt --mmap_cache \
-    --output_dir results_strict/verih_9b/multimax \
+    --output_dir results/verih_9b/multimax \
     --num_heads 10 --mlp_width 100 --lr 5e-4 --epochs 10 --batch_size 32 --target_eval 645
 
   # 4B MultiMax（论文 mid layer 8；缓存由 fast_softprompt/precompute_mid_from_cache.py 生成）
   python fast_softprompt/train_multimax.py \
     --cache cache_verih_4b_mid8.pt --mmap_cache \
-    --output_dir results_strict/verih_4b/multimax \
+    --output_dir results/verih_4b/multimax \
     --num_heads 10 --mlp_width 100 --lr 5e-4 --epochs 10 --batch_size 32 --target_eval 645
 
   # MLP（论文 hidden dim 2048）
   python fast_softprompt/train_mlp.py \
     --cache cache_verih_4b.pt --mmap_cache \
-    --output_dir results_strict/verih_4b/mlp --hidden_dim 2048 \
+    --output_dir results/verih_4b/mlp --hidden_dim 2048 \
     --lr 5e-4 --epochs 10 --batch_size 32 --target_eval 645
   ```
 - MiniCPM4.1-8B（Eagle3 头，本地基座/E3DIR）：

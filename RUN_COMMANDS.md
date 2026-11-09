@@ -1,6 +1,8 @@
 # 实验运行命令说明
 
-本文档列出生成 `results/`（原始 Qwen 结果 + MiniCPM 结果）和 `results_strict/`（4B/9B 严格协议结果）中每个实验的命令。所有命令都从仓库根目录执行。
+本文档列出生成 `results/` 中每个实验的命令（Qwen 4B/9B 严格结果 + MiniCPM 结果；原始/27B 命令保留作重建参考）。所有命令都从仓库根目录执行。
+
+> **清理说明（2026-11-09）**：已删除 27B 全部产物、原始 4B/9B 非严格结果和未使用的 4B layer-16 mid 缓存。本文档中的原始/27B 命令保留作为重建参考；最终表格对应的命令见 §3.2（严格 MLP）、§3.3（严格 MultiMax）和 §3.5（MiniCPM）。
 
 **环境**：`conda activate sp`；Python 3.10.22；PyTorch 2.8.0+cu126；Transformers 5.20.2。  
 **仓库**：`/data1/suzeqin/SpeculativeProbing`  
@@ -218,7 +220,7 @@ python fast_softprompt/train_multimax.py \
 
 ---
 
-## 3. 严格协议结果（`results_strict/`）
+## 3. 严格协议结果（`results/`）
 
 严格协议：MultiMax 用论文的 mid layer（4B=8，9B=16）；MLP 用论文的 hidden dim 2048。SP 超参数本来与论文一致，结果为原样复制（§3.4）。
 
@@ -249,7 +251,7 @@ for TAG in 4b 9b; do
     if [ "$task" = "verih" ]; then TE=645; else TE=800; fi
     python fast_softprompt/train_mlp.py \
       --cache "cache_${task}_${TAG}.pt" --mmap_cache \
-      --output_dir "results_strict/${task}_${TAG}/mlp" \
+      --output_dir "results/${task}_${TAG}/mlp" \
       --hidden_dim 2048 \
       --lr 5e-4 --epochs 10 --batch_size 32 --target_eval "${TE}"
   done
@@ -265,7 +267,7 @@ for task in verih nemotron_safety; do
   if [ "$task" = "verih" ]; then TE=645; else TE=800; fi
   python fast_softprompt/train_multimax.py \
     --cache "cache_${task}_9b_mid.pt" --mmap_cache \
-    --output_dir "results_strict/${task}_9b/multimax" \
+    --output_dir "results/${task}_9b/multimax" \
     --num_heads 10 --mlp_width 100 \
     --lr 5e-4 --epochs 10 --batch_size 32 --target_eval "${TE}"
 done
@@ -278,25 +280,15 @@ for task in verih nemotron_safety; do
   if [ "$task" = "verih" ]; then TE=645; else TE=800; fi
   python fast_softprompt/train_multimax.py \
     --cache "cache_${task}_4b_mid8.pt" --mmap_cache \
-    --output_dir "results_strict/${task}_4b/multimax" \
+    --output_dir "results/${task}_4b/multimax" \
     --num_heads 10 --mlp_width 100 \
     --lr 5e-4 --epochs 10 --batch_size 32 --target_eval "${TE}"
 done
 ```
 
-### 3.4 严格目录中的 SP 结果（复制，不是重跑）
+### 3.4 严格结果中的 SP 结果（原样复制，不是重跑）
 
-`results_strict/` 里的 SP-1/2/5 与 `results/` 中同名文件字节相同；它们由 §2.2 的 SP 命令生成，这里只是复制：
-
-```bash
-for TAG in 4b 9b; do
-  for task in verih nemotron_safety; do
-    for k in 1 2 5; do
-      cp -r "results/${task}_${TAG}/sp${k}" "results_strict/${task}_${TAG}/"
-    done
-  done
-done
-```
+严格结果中的 SP-1/2/5 沿用原始 SP 命令（§2.2）的结果，超参与论文一致，没有重跑；它们现在与 MLP/MultiMax 一起位于 `results/{task}_{TAG}/sp{k}`。
 
 ### 3.5 MiniCPM4.1-8B（Eagle3 头）
 
@@ -361,19 +353,14 @@ python fast_softprompt/train_multimax.py \
 
 | 结果路径 | 生成命令 | 备注 |
 |---|---|---|
-| `results/{verih,nemotron_safety}_{4b,9b}/sp{1,2,5}` | §2.2 SP 循环 | 原始划分 |
-| `results/{verih,nemotron_safety}_{4b,9b}/mlp` | §2.2 MLP 循环 | `hidden_dim=1024` |
-| `results/{verih,nemotron_safety}_{4b,9b}/multimax` | §2.2 MultiMax 循环 | **主缓存，非严格** |
-| `results/{verih,nemotron_safety}_27b/sp{1,2,5}` | §2.4 SP 循环 | 原始划分 |
-| `results/verih_27b/mlp` | §2.4 27B MLP（VerIH） | `hidden_dim=1024` |
-| `results/nemotron_safety_27b/mlp` | §2.4 27B MLP（nemotron，NaN 保护后重跑） | `hidden_dim=1024` |
-| `results/{verih,nemotron_safety}_27b/multimax` | §2.4 27B MultiMax（`_mid` layer 32） | 论文为 layer 20 |
-| `results_strict/{verih,nemotron_safety}_{4b,9b}/mlp` | §3.2 | `hidden_dim=2048` |
-| `results_strict/{verih,nemotron_safety}_{4b,9b}/multimax` | §3.3 | 4B layer 8，9B layer 16 |
-| `results_strict/{verih,nemotron_safety}_{4b,9b}/sp{1,2,5}` | §3.4 复制；原始命令是 §2.2 | 不是重跑 |
+| `results/{verih,nemotron_safety}_{4b,9b}/sp{1,2,5}` | §3.4（原始命令 §2.2） | 严格协议，SP 原样沿用 |
+| `results/{verih,nemotron_safety}_{4b,9b}/mlp` | §3.2 | `hidden_dim=2048` |
+| `results/{verih,nemotron_safety}_{4b,9b}/multimax` | §3.3 | 4B layer 8，9B layer 16，`_mid` |
 | `results/{verih,nemotron_safety}_mcpm/sp{1,2,5}` | §3.5 SP | Eagle3 头 |
 | `results/{verih,nemotron_safety}_mcpm/mlp` | §3.5 MLP | `hidden_dim=2048` |
 | `results/{verih,nemotron_safety}_mcpm/multimax` | §3.5 MultiMax | mid layer 16，`_mid` 缓存 |
+
+> §2.1–§2.4 的原始/27B 命令保留作为重建参考；对应的原始 4B/9B、27B 结果已删除。
 
 ---
 
@@ -389,7 +376,7 @@ python fast_softprompt/train_multimax.py \
 8. **MiniCPM 的 CoT 两个任务未跑**：`cot_inconsistency/data/` 为空，需要先生成/标注数据。
 6. **4B/9B 严格结果**已完成 MultiMax layer 8/16 和 MLP hidden 2048；唯一剩余差异是数据划分（论文 5,000/300/300、10,000/500/500；本复现 5,729/322/323、10,000/400/400）。
 7. **27B SP-5 VerIH** 曾被后台会话中断一次，由 watchdog 用同一条命令重启；最终结果来自重启后的完整训练。
-8. 原始 4B/9B 的 MultiMax 结果使用主缓存，数值接近论文但协议不对；严格结果见 `results_strict/`。
+8. 原始 4B/9B 的 MultiMax 结果曾使用主缓存（该结果已删除）；严格结果见 `results/`。
 
 ---
 

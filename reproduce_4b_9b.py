@@ -6,13 +6,13 @@ Protocol:
   * MLP      : main hidden-state cache, hidden_dim=2048 (paper Appendix B).
   * MultiMax : _mid cache at the paper mid layer (4B=8, 9B=16), H=10, width=100.
 
-Outputs go to --out (default: results_verified/) so the existing results are
-not overwritten. Each run is checked for:
+Outputs go to --out (default: results_verified/) so the final results in
+results/ are not overwritten. Each run is checked for:
   * final_results.json exists and is valid;
   * no NaN in training history;
   * method-specific config (k / hidden_dim / heads+width);
   * accuracy / F1 in [0, 1];
-  * accuracy within --tolerance pp of the reference (default: results_strict/).
+  * accuracy within --tolerance pp of the reference (default: results/).
 
 Usage:
   bash run_4b_9b_all.sh --gpus 4,5,6,7
@@ -110,7 +110,7 @@ def check_caches(sizes, tasks, need_mid, build: bool, python: str) -> list[str]:
     if build and (missing_main or missing_mid):
         print("[caches] building missing caches (this can take hours)...")
         print("[caches] WARNING: a rebuilt main cache may use a different data "
-              "snapshot/split than results_strict; comparisons may then fail.")
+              "snapshot/split than the reference; comparisons may then fail.")
         for size, task in missing_main:
             cmd = [
                 python, "fast_softprompt/precompute_hidden_states.py",
@@ -329,7 +329,7 @@ def main():
                     help="comma-separated GPU ids")
     ap.add_argument("--python", default=sys.executable,
                     help="Python interpreter for training subprocesses")
-    ap.add_argument("--reference", default="results_strict",
+    ap.add_argument("--reference", default="results",
                     help="reference result directory for comparison")
     ap.add_argument("--tolerance", type=float, default=2.0,
                     help="allowed |accuracy delta| vs reference, in pp")
