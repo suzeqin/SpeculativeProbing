@@ -18,6 +18,7 @@ import json
 import math
 import os
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -27,6 +28,7 @@ import torch.nn as nn
 class MiniCPMEagle3Output:
     logits: torch.Tensor
     hidden_states: torch.Tensor
+    past_key_value: Any = None
 
 
 class MiniCPMEagle3(nn.Module):
@@ -46,7 +48,16 @@ class MiniCPMEagle3(nn.Module):
         # MiniCPM residual scale: scale_depth / sqrt(L_base)
         self.residual_scale = float(scale_depth) / math.sqrt(float(num_hidden_layers_base))
 
-    def forward(self, hidden_states_list, inputs_embeds, return_dict=True):
+    def forward(
+        self,
+        hidden_states_list,
+        inputs_embeds,
+        return_dict=True,
+        use_cache: bool = False,
+        past_key_value=None,
+        position_ids=None,
+        skip_lm_head: bool = False,
+    ):
         # Fuse 3 base-model hidden states via FC: 3*hidden -> hidden
         combined = torch.cat(hidden_states_list, dim=-1)
         fused = self.fc(combined)
@@ -58,12 +69,19 @@ class MiniCPMEagle3(nn.Module):
         attn_input = torch.cat([hidden_norm, inputs_embeds], dim=-1)
 
         batch, seq_len, _ = attn_input.shape
-        position_ids = torch.arange(seq_len, device=attn_input.device).unsqueeze(0).expand(batch, -1)
+        if position_ids is None:
+            position_ids = torch.arange(seq_len, device=attn_input.device).unsqueeze(0).expand(batch, -1)
         position_embeddings = self.rotary_emb(fused, position_ids)
 
+        # ``past_key_value``/``use_cache`` are only used by the latency
+        # benchmark to model the incremental (KV-cached) deployment: the draft
+        # head's cache over the verified prefix is reused and only the k
+        # soft-prompt positions are evaluated.  Default behaviour (None/False)
+        # is identical to the original forward.
         attn_out = self.midlayer.self_attn(
             hidden_states=attn_input,
             position_embeddings=position_embeddings,
+            past_key_values=past_key_value if use_cache else None,
         )
         if isinstance(attn_out, tuple):
             attn_out = attn_out[0]
@@ -71,6 +89,17 @@ class MiniCPMEagle3(nn.Module):
         # MiniCPM residual: h = residual + f(h) * (scale_depth / sqrt(L))
         h = fused + attn_out * self.residual_scale
         h = h + self.midlayer.mlp(self.midlayer.post_attention_layernorm(h)) * self.residual_scale
+
+        if skip_lm_head:
+            # The classifier only reads ``h``; the draft-vocabulary projection
+            # (lm_head + d2t scatter) is not needed for classification.
+            if return_dict:
+                return MiniCPMEagle3Output(
+                    logits=None,
+                    hidden_states=h,
+                    past_key_value=past_key_value if use_cache else None,
+                )
+            return None, h
 
         h_normed = self.norm(h)
         draft_logits = self.lm_head(h_normed)
@@ -81,7 +110,11 @@ class MiniCPMEagle3(nn.Module):
         target_logits[:, :, self.d2t] = draft_logits
 
         if return_dict:
-            return MiniCPMEagle3Output(logits=target_logits, hidden_states=h)
+            return MiniCPMEagle3Output(
+                logits=target_logits,
+                hidden_states=h,
+                past_key_value=past_key_value if use_cache else None,
+            )
         return target_logits, h
 
 

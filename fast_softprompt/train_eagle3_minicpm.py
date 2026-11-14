@@ -99,7 +99,8 @@ class Eagle3SoftPromptClassifier(nn.Module):
         self.soft_prompt_h_high = nn.Parameter(torch.zeros(1, soft_prompt_length, hidden_dim, device=device), requires_grad=True)
         self.head = nn.Linear(hidden_dim, 1).to(device=device, dtype=torch.float32)
 
-    def forward(self, eagle3_hidden_list, token_ids, attention_mask, labels=None):
+    def forward(self, eagle3_hidden_list, token_ids, attention_mask, labels=None,
+                skip_lm_head: bool = False):
         k = self.soft_prompt_embed.size(1)
 
         inputs_embeds = self.embed_weights[token_ids.to(self.embed_weights.device)].to(self.device).clone()
@@ -143,6 +144,7 @@ class Eagle3SoftPromptClassifier(nn.Module):
             hidden_states_list=[h.to(dtype=e3_dtype) for h in eagle3_hidden_list],
             inputs_embeds=inputs_embeds.to(dtype=e3_dtype),
             return_dict=True,
+            skip_lm_head=skip_lm_head,
         )
         last_valid = attention_mask.sum(dim=1).clamp(min=1) - 1
         bidx = torch.arange(B, device=self.device)

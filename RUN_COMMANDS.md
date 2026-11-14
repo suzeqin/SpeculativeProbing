@@ -412,3 +412,71 @@ CUDA_VISIBLE_DEVICES=4 python fast_softprompt/precompute_mid_from_cache.py \
   --cache cache_verih_4b.pt --model models/Qwen3.5-4B \
   --mid_layer 16 --output /tmp/test_mid16.pt --batch_size 4 --limit 32
 ```
+
+---
+
+## 7. 推理时间开销测试（新增，`latency/`）
+
+论文正文（§3.3 只给 `O(k n d_h)+O(k d²)` 的渐近项）、Table 6（渐近复杂度）和附录 B（只给训练硬件与训练耗时）都没有报告 SP-1 / SP-2 / SP-5、MLP、MultiMax 的**实测推理延迟**。本节脚本在同一套复现检查点与数据上补齐这项测量，结果见仓库根目录的 [`LATENCY_REPORT.md`](LATENCY_REPORT.md)。
+
+### 7.1 测量内容
+
+- `base_prefill`：基座模型对 prompt 的前向（`output_hidden_states=True, use_cache=True`），即所有 probe 消费特征的同一趟前向；
+- `base_decode`：带 KV cache 的单 token 解码步（监控生成过程时的参考成本）；
+- `mlp` / `mm`：复现代码中的 `train_mlp.MLPClassifier` / `train_multimax.MultiMaxClassifier`；
+- `sp{k}`：**standalone**，即复现代码原样的整序列 draft-head 前向 + k 个 soft prompt；
+- `sp{k}_inc`：**KV-cached**，即论文 §3.3 的部署方式：draft head 的 prefix KV cache 已存在，只计算 k 个 soft-prompt 位置（k 个单 token draft-head step + 线性头）；与参考前向的 logits 等价（bf16 下 |Δlogit| ≤ 0.05）；
+- `sp{k}_core`（仅 MiniCPM）：去掉分类器从不读取的 draft `lm_head`+`d2t` 投影后的版本。
+
+计时方式：batch size 1、bf16、PyTorch eager；每个样本 5 次 CUDA event 计时（每次之间 flush 32 MiB L2），取每样本最小值再取测试集中位数；同时用 `torch.profiler` 记录单次调用的 CUDA kernel 时间。基座前向与 probe 在同一时间窗口内交错测量，因此**比值**不受 GPU 争用影响（绝对值会受影响，见报告 §8）。
+
+### 7.2 运行命令
+
+```bash
+conda activate sp
+cd /data1/suzeqin/SpeculativeProbing
+
+# 单个 (model, task)
+CUDA_VISIBLE_DEVICES=6 python latency/bench_latency.py \
+  --model qwen3.5-4b --task verih \
+  --methods mlp,mm,sp1,sp2,sp5,sp1_inc,sp2_inc,sp5_inc \
+  --reps 5 --reps_base 2 --profile_reps 5 \
+  --out latency/results/qwen3.5-4b_verih.json
+
+# 全部 6 个 (model, task)，约 40 分钟（共享 A6000）
+bash latency/run_all_latency.sh 6
+
+# 只测 probe 的随长度缩放（不需要基座模型，约 30 秒/配置）
+bash latency/run_scaling.sh 6
+
+# 由 JSON 重新生成 CSV / Markdown 表
+python latency/merge_latency.py
+```
+
+MiniCPM 的两个任务需要额外的 `sp{k}_core`（脚本已包含）：
+
+```bash
+python latency/bench_latency.py \
+  --model minicpm4.1-8b --task verih \
+  --methods mlp,mm,sp1,sp2,sp5,sp1_inc,sp2_inc,sp5_inc,sp1_core,sp2_core,sp5_core \
+  --out latency/results/minicpm4.1-8b_verih.json
+```
+
+### 7.3 主要结果（batch 1，中位长度样本，单位 ms）
+
+| 模型 | 任务 | prefill | MLP | MultiMax | SP-1 | SP-5 | SP-1 KV | SP-5 KV |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| Qwen3.5-4B | verih | 60.3 | 0.034 | 0.068 | 3.18 | 24.1 | 0.68 | 5.59 |
+| Qwen3.5-4B | nemotron | 47.8 | 0.034 | 0.048 | 3.03 | 24.0 | 0.67 | 5.59 |
+| Qwen3.5-9B | verih | 76.6 | 0.044 | 0.078 | 3.58 | 25.9 | 1.01 | 9.58 |
+| Qwen3.5-9B | nemotron | 41.1 | 0.043 | 0.11 | 1.60 | 7.26 | 1.13 | 5.03 |
+| MiniCPM4.1-8B | verih | 108.0 | 0.044 | 0.080 | 6.38 | 6.41 | 1.08 | 9.93 |
+| MiniCPM4.1-8B | nemotron | 101.2 | 0.043 | 0.058 | 6.17 | 6.21 | 1.07 | 9.91 |
+
+结论（详见 `LATENCY_REPORT.md`）：
+
+1. **MLP / MultiMax 基本免费**：0.03–0.11 ms，占 prefill 的 0.03–0.22%；MultiMax 随序列长度缓慢增长（50 token 时约 50 µs，500 token 时约 100 µs）。
+2. **SP-1 在 KV-cached 部署下约 0.7–1.1 ms**（占 prefill 0.8–2.4%），即一个 draft-head 解码步——论文“negligible overhead”的说法在这一配置下成立。
+3. **SP-5 在 KV-cached 部署下约 5–10 ms**（占 prefill 6.6–10.8%）；成本随 k 近似线性，GPU 时间每步约 0.6 ms（Qwen-4B）、约 1.0 ms（Qwen-9B / MiniCPM Eagle3）。
+4. **standalone 路径远慢于渐近分析**：Qwen 的 SP-5 达到 24–26 ms。原因不是算力，而是复现版 `RecursiveSoftPromptClassifier` 在 k>1 的每个递归步里都在 host 上新建 `position_ids` / `cache_position` 张量并做 pageable H2D 拷贝（单次约 2.3 ms）。`latency/bench_latency.py` 的增量实现把这些张量提到循环外，同一算术只需 5–10 ms；把该修复用于参考实现可去掉约 18–20 ms 的 SP-5 延迟。
+5. **MiniCPM Eagle3 probe 最贵**：每步 0.7–1.0 ms（SP-1），k≥2 时 eager 约 2 ms/步；其 standalone 前向还有约 2.7–2.9 ms 花在分类器不使用的 draft `lm_head`+`d2t` 上，去掉后从 6.4 ms 降到 3.6 ms。
