@@ -185,3 +185,38 @@ Experiments were run on 2× NVIDIA RTX PRO 6000 Blackwell (96 GB each).
 Precomputing hidden states and holding the base model dominate GPU memory;
 classifier training itself is tiny (only the soft prompts + linear head are
 updated).
+
+## New-benchmark extension (AgentLAB / BFCL-v4 / LiveCodeBench)
+
+`new_benchmark.md` defines three further benchmarks: **AgentLAB** (black-box
+long-horizon indirect injection; FNR / ASR), **BFCL-v4** (benign tool calls;
+false-positive rate), and **LiveCodeBench** (long code generation; speculative
+decoding performance). The extension runs 3 benchmarks × 3 models
+(Qwen3.5-4B / 9B, MiniCPM4.1-8B) × 5 configs (SP-1 / SP-2 / SP-5 / MLP / MM)
+= 45 experiments. Detection, decoding-speed, ASR tables and the known MiniCPM
+Eagle3 draft-convention caveat are collected in
+`results_new_benchmark/REPORT.md`; raw metrics live in `specbench/results/`.
+
+Scripts added for this extension (all run from the repository root):
+
+| Path | Purpose |
+|---|---|
+| `agentlab/agentdojo_env.py` | AgentDojo environment documents (benign corpus) |
+| `agentlab/attack_corpus.py` | injection vectors / goals, Agent-SafetyBench, Intent-Hijacking loaders |
+| `agentlab/build_classifier_dataset.py` | build `agentlab/classifier_dataset.jsonl` |
+| `bfcl_v4/build_classifier_dataset.py` | build `bfcl_v4/classifier_dataset.jsonl` |
+| `livecodebench/build_classifier_dataset.py` | build dataset + `livecodebench/gen_prompts.jsonl` |
+| `scripts/precompute_new_benchmarks.py` | precompute the 9 hidden-state cache groups (last / mid / Eagle3) |
+| `new_benchmark_repro.py` | train all 45 probes (mirrors the verified `reproduce_all.py`) |
+| `scripts/sweep_trainings.sh` | re-queue incomplete trainings until 45/45 complete |
+| `specbench/spec_decode.py` | greedy speculative-decoding engines (Qwen MTP / MiniCPM Eagle3 / AR reference) |
+| `specbench/probes.py` | trained-probe adapters for the decoding harness |
+| `specbench/eval_detection.py` | confusion matrices (Acc / FNR / FPR / F1) for all 45 groups |
+| `specbench/run_bench.py` | decoding metrics (acceptance / τ / latency / throughput / probe overhead), 6 configs |
+| `specbench/eval_asr.py` | AgentLAB ASR, post-deployment ASR, benign FPR |
+| `specbench/collect_results.py` | aggregate everything into `results_new_benchmark/REPORT.md` |
+
+Caches produced by step 1 are `cache_{agentlab,bfcl_v4,livecodebench}_{4b,9b,mcpm}.pt`
+with `_mid8` / `_mid` / `_eagle3` variants and `.hidden` sidecars (mmap format,
+same as the original reproduction). MiniCPM precompute / training must run on a
+single GPU (`CUDA_VISIBLE_DEVICES` explicitly).

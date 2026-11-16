@@ -75,6 +75,8 @@ def make_val_test_split(
         test_hidden=pick(all_hidden, test_idx),
         test_ids=pick(all_ids, test_idx),
         test_labels=pick(all_labels, test_idx),
+        test_indices=test_idx,
+        val_indices=val_idx,
         num_train_used=len(train_idx),
         num_val=len(val_idx),
         num_test=len(test_idx),

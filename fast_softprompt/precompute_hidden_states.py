@@ -124,7 +124,7 @@ def load_pii_data(tokenizer, num_train=1000, num_test=100, max_length=2048):
         for line in f:
             r = json.loads(line)
             label = 1 if r["label"] == "pii" else 0
-            ids = tokenizer.encode(r["text"], add_special_tokens=True)
+            ids = tokenizer.encode(r["text"], add_special_tokens=add_special)
             if len(ids) > max_length:
                 skipped += 1
                 continue
@@ -154,7 +154,7 @@ def load_nemotron_safety_data(tokenizer, num_train=10000, num_test=1000, max_len
         for line in f:
             r = json.loads(line)
             label = 1 if r["label"] == "unsafe" else 0
-            ids = tokenizer.encode(r["text"], add_special_tokens=True)
+            ids = tokenizer.encode(r["text"], add_special_tokens=add_special)
             if len(ids) > max_length:
                 skipped += 1
                 continue
@@ -176,6 +176,52 @@ def load_nemotron_safety_data(tokenizer, num_train=10000, num_test=1000, max_len
     return train, test
 
 
+NEW_BENCH_TASKS = ("agentlab", "bfcl_v4", "livecodebench")
+
+
+def load_new_benchmark_data(task, tokenizer, num_train=None, num_test=None, max_length=2048,
+                            add_special=True):
+    """Loader for the three new-benchmark tasks (agentlab / bfcl_v4 / livecodebench).
+
+    Each task dir ships a ``classifier_dataset.jsonl`` with pre-assigned
+    ``split`` fields ("train" / "test"); both pools are class-balanced by
+    construction. Records are tokenized here (add_special_tokens=True, same
+    convention as nemotron_safety) and over-length samples dropped.
+    """
+    task_dir = {"agentlab": "agentlab", "bfcl_v4": "bfcl_v4",
+                "livecodebench": "livecodebench"}[task]
+    data_path = os.path.join(ROOT, task_dir, "classifier_dataset.jsonl")
+    by_split = {"train": [], "test": []}
+    skipped = 0
+    with open(data_path) as f:
+        for line in f:
+            r = json.loads(line)
+            ids = tokenizer.encode(r["text"], add_special_tokens=add_special)
+            if len(ids) > max_length:
+                skipped += 1
+                continue
+            by_split[r.get("split", "train")].append({"_token_ids": ids, "label": int(r["label"])})
+    if skipped:
+        print(f"Skipped {skipped} samples over {max_length} tokens")
+
+    def balance(recs, budget):
+        pos = [r for r in recs if r["label"] == 1]
+        neg = [r for r in recs if r["label"] == 0]
+        random.shuffle(pos)
+        random.shuffle(neg)
+        half = min(len(pos), len(neg), budget // 2)
+        out = pos[:half] + neg[:half]
+        random.shuffle(out)
+        return out
+
+    train_budget = num_train if num_train is not None else len(by_split["train"])
+    test_budget = num_test if num_test is not None else len(by_split["test"])
+    train = balance(by_split["train"], train_budget)
+    test = balance(by_split["test"], test_budget)
+    print(f"Loaded {task}: train={len(train)} test={len(test)}")
+    return train, test
+
+
 def load_longsafety_data(tokenizer, num_train=1000, num_test=200, max_length=8192):
     data_path = os.path.join(ROOT, "longsafety", "classifier_dataset.jsonl")
     records = []
@@ -184,7 +230,7 @@ def load_longsafety_data(tokenizer, num_train=1000, num_test=200, max_length=819
         for line in f:
             r = json.loads(line)
             label = 1 if r["label"] == "unsafe" else 0
-            ids = tokenizer.encode(r["text"], add_special_tokens=True)
+            ids = tokenizer.encode(r["text"], add_special_tokens=add_special)
             if len(ids) > max_length:
                 skipped += 1
                 continue
@@ -234,7 +280,8 @@ def tokenize_records(records, tokenizer, task, max_length=2048):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="Qwen/Qwen3.5-9B")
-    parser.add_argument("--task", choices=["wildchat", "verih", "longsafety", "pii", "adversarial_if", "nemotron_safety"], required=True)
+    parser.add_argument("--task", choices=["wildchat", "verih", "longsafety", "pii", "adversarial_if", "nemotron_safety",
+                                            "agentlab", "bfcl_v4", "livecodebench"], required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--max_length", type=int, default=2048)
     parser.add_argument("--batch_size", type=int, default=4)
@@ -277,9 +324,14 @@ def main():
         if args.num_train is not None: kw["num_train"] = args.num_train
         if args.num_test is not None: kw["num_test"] = args.num_test
         train_records, test_records = load_nemotron_safety_data(tokenizer, **kw)
+    elif args.task in NEW_BENCH_TASKS:
+        kw = {"max_length": args.max_length}
+        if args.num_train is not None: kw["num_train"] = args.num_train
+        if args.num_test is not None: kw["num_test"] = args.num_test
+        train_records, test_records = load_new_benchmark_data(args.task, tokenizer, **kw)
 
     # Tokenize
-    if args.task in ("longsafety", "pii", "adversarial_if", "nemotron_safety"):
+    if args.task in ("longsafety", "pii", "adversarial_if", "nemotron_safety") or args.task in NEW_BENCH_TASKS:
         # Already tokenized in load_*_data
         train_ids = [r["_token_ids"] for r in train_records]
         train_labels = [r["label"] for r in train_records]

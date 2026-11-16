@@ -40,7 +40,7 @@ EAGLE3_LAYER_IDS = [2, 16, 29]
 # Reuse loaders from the main precompute script.
 from precompute_hidden_states import (
     load_wildchat_data, load_verih_data, load_adversarial_if_data,
-    load_nemotron_safety_data, tokenize_records,
+    load_nemotron_safety_data, tokenize_records, load_new_benchmark_data,
 )
 from precompute_hidden_states_cot import load_cot_data
 from cache_io import save_cache_mmap, StreamingCacheWriter
@@ -49,7 +49,8 @@ from cache_io import save_cache_mmap, StreamingCacheWriter
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--task", choices=["wildchat", "verih", "adversarial_if",
-                                            "nemotron_safety",
+                                            "nemotron_safety", "agentlab", "bfcl_v4",
+                                            "livecodebench",
                                             "cot_repetitive", "cot_branched"], required=True)
     parser.add_argument("--base_model", default=MODEL_NAME,
                         help="HF id or local path to MiniCPM4.1-8B")
@@ -80,6 +81,13 @@ def main():
         if args.num_train is not None: kw["num_train"] = args.num_train
         if args.num_test is not None: kw["num_test"] = args.num_test
         train_records, test_records = load_nemotron_safety_data(tokenizer, **kw)
+    elif args.task in ("agentlab", "bfcl_v4", "livecodebench"):
+        kw = {"max_length": args.max_length}
+        if args.num_train is not None: kw["num_train"] = args.num_train
+        if args.num_test is not None: kw["num_test"] = args.num_test
+        # MiniCPM's tokenizer adds a BOS that the model does not expect
+        train_records, test_records = load_new_benchmark_data(
+            args.task, tokenizer, add_special=False, **kw)
     elif args.task in ("cot_repetitive", "cot_branched"):
         if args.data is None:
             raise ValueError("--data (labeled rollout jsonl) is required for cot_* tasks")
@@ -89,7 +97,8 @@ def main():
         train_records, test_records = load_cot_data(args.data, tokenizer, **kw)
 
     # Tokenize
-    if args.task in ("adversarial_if", "nemotron_safety", "cot_repetitive", "cot_branched"):
+    if args.task in ("adversarial_if", "nemotron_safety", "cot_repetitive", "cot_branched",
+                     "agentlab", "bfcl_v4", "livecodebench"):
         train_ids = [r["_token_ids"] for r in train_records]
         train_labels = [r["label"] for r in train_records]
         test_ids = [r["_token_ids"] for r in test_records]
@@ -109,6 +118,10 @@ def main():
         args.base_model, torch_dtype=torch.bfloat16, trust_remote_code=True, device_map="auto",
     )
     model.eval()
+    # transformers 5.x meta-device init wipes the non-persistent rotary caches
+    # of the MiniCPM remote code (all-zero cos/sin -> no positional info).
+    import minicpm_compat
+    minicpm_compat.fix_minicpm_rotary(model)
     device = str(model.lm_head.weight.device)
     print(f"  GPU: {torch.cuda.memory_allocated()/1e9:.2f} GB")
 

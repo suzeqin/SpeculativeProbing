@@ -197,7 +197,14 @@ def main():
 
     # Final test eval
     if best_epoch > 0:
-        classifier.load_state_dict(best_state)
+
+        if args.output_dir:
+            os.makedirs(args.output_dir, exist_ok=True)
+            torch.save({
+                "epoch": best_epoch, "val_acc": best_eval_acc,
+                "state_dict": {k: v.detach().cpu().clone() for k, v in classifier.state_dict().items()},
+            }, os.path.join(args.output_dir, "best.pt"))
+
     tp, tg, test_acc, test_pr, test_rc, test_f1 = eval_on(test_features, test_labels)
     vp, vg, vA, vP, vR, vF = eval_on(val_features, val_labels)
     print(f"\nBest epoch (by val): {best_epoch} val_acc={best_eval_acc:.4f}")

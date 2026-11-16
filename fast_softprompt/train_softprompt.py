@@ -869,6 +869,14 @@ def main():
     val_metrics = {"accuracy": vA, "precision": vP, "recall": vR, "f1": vF,
                    "per_step_acc": val_per_step_acc_final}
 
+    # Save the trained probe (soft prompts + head) for inference-time use.
+    if args.output_dir and best_state is not None:
+        os.makedirs(args.output_dir, exist_ok=True)
+        torch.save({
+            "epoch": best_epoch, "val_acc": vA,
+            "state_dict": best_state,
+        }, os.path.join(args.output_dir, "best.pt"))
+
     # Save results
     if args.output_dir:
         os.makedirs(args.output_dir, exist_ok=True)

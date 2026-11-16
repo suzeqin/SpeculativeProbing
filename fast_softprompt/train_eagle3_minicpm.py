@@ -370,7 +370,14 @@ def main():
             scheduler.step()
 
     if best_epoch > 0:
-        clf.load_state_dict(best_state)
+
+        if args.output_dir:
+            os.makedirs(args.output_dir, exist_ok=True)
+            torch.save({
+                "epoch": best_epoch, "val_acc": best_eval_acc,
+                "state_dict": {k: v.detach().cpu().clone() for k, v in clf.state_dict().items()},
+            }, os.path.join(args.output_dir, "best.pt"))
+
     tp, tg, test_acc, test_pr, test_rc, test_f1 = run_eval(test_h, test_ids_, test_y)
     _, _, vA, vP, vR, vF = run_eval(val_h, val_ids, val_y)
     print(f"\nBest epoch (by val): {best_epoch} val_acc={best_eval_acc:.4f}")
