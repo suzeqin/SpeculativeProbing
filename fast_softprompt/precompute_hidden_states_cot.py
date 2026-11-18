@@ -60,13 +60,21 @@ def load_cot_data(data_path, tokenizer, num_train=1000, num_test=200, max_length
     random.shuffle(pos)
     random.shuffle(neg)
 
-    train_half = num_train // 2
-    test_half = num_test // 2
+    # Robust balanced sampling: reserve a balanced held-out pool first, then
+    # build the largest balanced train set that the available positives allow.
+    # The local 122B teacher produces far fewer "repetitive" traces than
+    # Qwen3.5-Plus in the paper, so a fixed num_train//2 positive slice would
+    # silently yield an all-negative test set.
+    if not pos or not neg:
+        raise RuntimeError(f"Need both classes after filtering, got {len(pos)} pos / {len(neg)} neg")
+    test_half = min(num_test // 2, len(pos) // 2, len(neg) // 2)
+    train_half = min(num_train // 2, min(len(pos), len(neg)) - test_half)
+    if train_half < 1 or test_half < 1:
+        raise RuntimeError(f"Not enough samples to balance: {len(pos)} pos / {len(neg)} neg")
 
     train = pos[:train_half] + neg[:train_half]
-    remaining_pos = pos[train_half:]
-    remaining_neg = neg[train_half:]
-    test = remaining_pos[:test_half] + remaining_neg[:test_half]
+    test = (pos[train_half:train_half + test_half]
+            + neg[train_half:train_half + test_half])
 
     random.shuffle(train)
     random.shuffle(test)

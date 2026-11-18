@@ -31,3 +31,8 @@ livecodebench/data/
 results*/
 logs/
 *.log
+
+# Pipeline runtime markers (must not be versioned: a fresh checkout must not
+# think generation/labelling already finished)
+cot_local/.gen_done
+cot_local/.labels_done

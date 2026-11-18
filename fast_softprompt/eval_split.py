@@ -44,23 +44,27 @@ def make_val_test_split(
     assert total == num_train_cached + num_test_cached, \
         f"cache sizes inconsistent: {total} vs {num_train_cached}+{num_test_cached}"
 
-    needed_from_train = max(0, target_eval - num_test_cached)
-    if needed_from_train > num_train_cached:
-        needed_from_train = num_train_cached  # cap
-
-    # Eval pool index range: [num_train_cached - needed_from_train, total)
-    eval_start = num_train_cached - needed_from_train
+    # Use only the cached held-out samples (the balanced sampler guarantees
+    # this pool is class-balanced); never borrow from train, which would break
+    # the balance when fewer positives are available.
+    eval_start = num_train_cached
     eval_indices = list(range(eval_start, total))
 
-    # Deterministic shuffle of the eval pool, then val/test split
+    # Stratified deterministic val/test split so both stay class-balanced.
     rng = random.Random(seed)
-    rng.shuffle(eval_indices)
-    n_eval = len(eval_indices)
-    n_val = int(round(val_fraction * n_eval))
-    val_idx = eval_indices[:n_val]
-    test_idx = eval_indices[n_val:]
+    pos = [i for i in eval_indices if all_labels[i] == 1]
+    neg = [i for i in eval_indices if all_labels[i] == 0]
+    rng.shuffle(pos)
+    rng.shuffle(neg)
+    n_pair = min(len(pos), len(neg))
+    n_val_pair = int(round(val_fraction * n_pair))
+    val_idx = pos[:n_val_pair] + neg[:n_val_pair]
+    test_idx = pos[n_val_pair:n_pair] + neg[n_val_pair:n_pair]
+    rng.shuffle(val_idx)
+    rng.shuffle(test_idx)
 
     train_idx = list(range(eval_start))
+    needed_from_train = 0
 
     def pick(arr, idxs):
         return [arr[i] for i in idxs]

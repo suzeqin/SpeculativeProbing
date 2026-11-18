@@ -1,0 +1,46 @@
+{
+  "config": {
+    "task": "cot_repetitive",
+    "arch": "eagle3_softprompt_minicpm",
+    "base_model": "models/MiniCPM4.1-8B",
+    "eagle3_dir": "models/MiniCPM4.1-8B-Eagle3/MiniCPM4_1-8B-Eagle3-bf16",
+    "soft_prompt_length": 1,
+    "num_epochs": 2,
+    "batch_size": 1,
+    "learning_rate": 0.0003,
+    "min_lr": 0.0001,
+    "dropout": 0.2,
+    "best_epoch": 1,
+    "num_train": 16,
+    "num_val": 8,
+    "num_test": 8
+  },
+  "training_history": [
+    {
+      "epoch": 1,
+      "lr": 0.0003,
+      "train_loss": 1.6604171215294627,
+      "train_acc": 0.5,
+      "val_acc": 0.375
+    },
+    {
+      "epoch": 2,
+      "lr": 0.00019999999999999998,
+      "train_loss": 1.2046212777495384,
+      "train_acc": 0.375,
+      "val_acc": 0.375
+    }
+  ],
+  "val_metrics": {
+    "accuracy": 0.375,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0
+  },
+  "metrics": {
+    "accuracy": 0.625,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0
+  }
+}

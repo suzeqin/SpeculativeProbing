@@ -342,6 +342,29 @@ class LazyGemmaCache:
         }
 
 
+def _load_bundle(hidden_path: str, mmap: bool):
+    """torch.load a flat hidden-state bundle.
+
+    For mmap loads, force a MAP_SHARED file-backed mapping. torch defaults to
+    MAP_PRIVATE, whose writable mapping is charged against the kernel commit
+    limit (here ~282 GiB because vm.overcommit_ratio=50). CoT caches are much
+    larger (up to 608 GiB), so MAP_PRIVATE fails with ENOMEM. A MAP_SHARED
+    file-backed mapping is not commit-charged and its clean pages are
+    reclaimable, so many large caches can be mapped at once without OOM.
+    """
+    if not mmap:
+        return torch.load(hidden_path, map_location="cpu", weights_only=False)
+    import mmap as _mmap
+    from torch.utils.serialization import config as _cfg
+    prev = _cfg.load.mmap_flags
+    _cfg.load.mmap_flags = _mmap.MAP_SHARED
+    try:
+        return torch.load(hidden_path, map_location="cpu",
+                          weights_only=False, mmap=True)
+    finally:
+        _cfg.load.mmap_flags = prev
+
+
 def load_cache(path: str, mmap: bool = False) -> Dict[str, Any]:
     """Load a cache in any supported format.
 
@@ -356,8 +379,7 @@ def load_cache(path: str, mmap: bool = False) -> Dict[str, Any]:
         hidden_path = path + ".hidden"
         if not os.path.exists(hidden_path):
             raise FileNotFoundError(f"Missing {hidden_path} for mmap_v1 cache")
-        hidden_bundle = torch.load(hidden_path, map_location="cpu",
-                                   weights_only=False, mmap=mmap)
+        hidden_bundle = _load_bundle(hidden_path, mmap)
         flat = hidden_bundle["hidden_flat"]
         offsets = meta["offsets"]
         meta["hidden_states"] = LazyHiddenStates(flat, offsets)

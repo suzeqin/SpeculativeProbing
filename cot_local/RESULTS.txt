@@ -1,0 +1,14 @@
+
+=== Table 3 - CoT Repetition (WebInstruct-verified traces) ===
+Model                        MLP           MM         SP-1         SP-2         SP-5
+Qwen3.5-4B           79.5/87.5    77.5/87.0    76.5/88.0    75.5/87.5    82.5/89.0 
+Qwen3.5-9B           82.5/89.5    70.0/87.5    77.5/91.5    75.0/89.5    71.5/89.5 
+MiniCPM4.1-8B        78.5/83.5    64.5/82.5    68.5/86.0    66.5/85.0    64.0/87.0 
+  (cell format: reproduced/paper)
+
+=== Table 4 - CoT Reasoning Strategy / branched (WebInstruct-verified traces) ===
+Model                        MLP           MM         SP-1         SP-2         SP-5
+Qwen3.5-4B           69.5/73.0    85.5/85.5    85.0/83.0    86.0/81.5    86.5/82.5 
+Qwen3.5-9B           70.5/76.5    86.5/87.0    87.5/84.5    86.5/83.0    86.0/83.5 
+MiniCPM4.1-8B        71.0/68.0    78.5/78.5    66.5/66.5    66.5/65.5    58.5/64.5 
+  (cell format: reproduced/paper)
