@@ -93,15 +93,18 @@ def label_one(client, sample, model_name, judge_prompt, task=None):
         if "```" in answer:
             match = re.search(r"```(?:text)?\s*(.*?)```", answer, re.DOTALL)
             answer = match.group(1).strip().lower() if match else answer
-        if scheme["positive"] in answer:
-            label = 1
-            parsed = {"answer": scheme["positive"], "raw": raw}
-        elif scheme["negative"] in answer:
-            label = 0
-            parsed = {"answer": scheme["negative"], "raw": raw}
+        # Accept only a short answer whose first word is an exact allowed label.
+        # Substring matching would mis-read long reasoning text as a verdict.
+        pos, neg = scheme["positive"].lower(), scheme["negative"].lower()
+        low = answer.strip(" \t\n\r\"'`*.,:;!?()[]{}")
+        m = re.match(rf"^({re.escape(pos)}|{re.escape(neg)})\b", low) if len(low) <= 64 else None
+        if m is not None:
+            word = m.group(1)
+            label = 1 if word == pos else 0
+            parsed = {"answer": word, "raw": raw}
         else:
             label = -1
-            parsed = {"answer": answer, "raw": raw}
+            parsed = {"answer": answer[:120], "raw": raw}
         return label, parsed
     except Exception as exc:
         log(f"  Label error: {exc}")

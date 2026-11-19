@@ -391,7 +391,7 @@ def load_cache(path: str, mmap: bool = False) -> Dict[str, Any]:
             fp = f"{path}.{field}"
             if not os.path.exists(fp):
                 raise FileNotFoundError(f"Missing {fp} for gemma_mtp_v1 cache")
-            bundle = torch.load(fp, map_location="cpu", weights_only=False, mmap=mmap)
+            bundle = _load_bundle(fp, mmap)
             flats[field] = bundle["flat"]
         meta["samples"] = LazyGemmaCache(
             flats, meta["offsets"],

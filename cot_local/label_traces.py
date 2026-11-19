@@ -3,9 +3,14 @@
 
 Adapted from cot_inconsistency/label_generated_simpleqa_gpt_repetitive_thinking.py:
 the original calls the OpenAI Responses API (gpt-5.4); we keep the same judge
-prompts, label schemes, parsing and resume-safe JSONL writing, but call the
-OpenAI-compatible chat API of the local vLLM server instead. Thinking is turned
-off via the Qwen chat template so the judge answers with the bare label.
+prompts, label schemes and resume-safe JSONL writing, but call the
+OpenAI-compatible chat API of the local vLLM server instead.
+
+The judge runs with thinking enabled. Only the text after </think> is accepted
+as a verdict, and it must be a short, exact label word; truncated thinking is
+discarded (label = -1). Output goes straight to *_labeled_<task>_fixed_all.jsonl,
+the canonical clean label file consumed by run_precompute_one.sh. The vLLM
+server must use a matching context (restart_vllm.sh defaults to 16384).
 """
 import argparse
 import concurrent.futures
@@ -29,7 +34,7 @@ def log(msg):
     print(msg, flush=True)
 
 
-def label_one(client, sample, model_name, judge_prompt, task, tokenizer=None, context=9216):
+def label_one(client, sample, model_name, judge_prompt, task, tokenizer=None, context=16384):
     prompt = (
         f"{judge_prompt}\n\n"
         f"Question: {sample['question']}\n\n"
@@ -57,18 +62,19 @@ def label_one(client, sample, model_name, judge_prompt, task, tokenizer=None, co
         raw = resp.choices[0].message.content.strip()
         # With thinking enabled the chat template inserts the <think> opener in
         # the prompt; only the text after </think> is the actual verdict.
-        if "</think>" in raw:
-            raw_answer = raw.split("</think>", 1)[1].strip()
-        else:
-            raw_answer = raw
+        # A response without </think> is truncated thinking, not a verdict:
+        # discard it instead of treating a long "Thinking Process:" essay as
+        # an answer (the original substring-matching bug).
+        if "</think>" not in raw:
+            log(f"  No closing </think> ({len(raw)} chars) - discarded")
+            return -1, {"answer": "unclosed_thinking", "raw": ""}
+        raw_answer = raw.split("</think>", 1)[1].strip()
         answer = raw_answer.lower()
         if "```" in answer:
             match = re.search(r"```(?:text)?\s*(.*?)```", answer, re.DOTALL)
             answer = match.group(1).strip().lower() if match else answer
-        # Strict verdict parsing. Substring matching (the previous behaviour)
-        # silently turned truncated "Thinking Process:" essays into positives:
-        # "yes"/"branched" appears somewhere in almost any long reasoning text.
-        # Require a short answer beginning with an exact allowed label word.
+        # Strict verdict parsing: require a short answer beginning with an
+        # exact allowed label word, never substring membership in a long text.
         low = answer.strip(" \t\n\r\"'`*.,:;!?()[]{}")
         m = re.match(r"^(yes|no|linear|branched)\b", low) if len(low) <= 64 else None
         if m is not None and m.group(1) in (scheme["positive"], scheme["negative"]):
@@ -94,14 +100,14 @@ def main():
     parser.add_argument("--workers", type=int, default=64)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--tokenizer", default="/data1/suzeqin/SpeculativeProbing/models/Qwen3.5-122B-A10B-GPTQ-Int4")
-    parser.add_argument("--context", type=int, default=9216)
+    parser.add_argument("--context", type=int, default=16384)
     args = parser.parse_args()
 
     judge_prompt = JUDGE_PROMPTS[args.task]
     samples = load_samples(args.input, args.limit)
     log(f"=== Labeling {len(samples)} samples with {args.model} for {args.task} ===")
     log(f"  Input: {args.input}")
-    output_path = args.input.replace(".jsonl", f"_labeled_{args.task}.jsonl")
+    output_path = args.input.replace(".jsonl", f"_labeled_{args.task}_fixed_all.jsonl")
     log(f"  Output: {output_path}")
 
     already_done = set()

@@ -4,10 +4,10 @@ Precompute base model hidden states for CoT repetitive thinking classification.
 
 Usage:
   python fast_softprompt/precompute_hidden_states_cot.py \
-    --model Qwen/Qwen3.5-9B \
-    --data cot_inconsistency/data/generated_webinstruct_verified_train_qwen3_5_plus_labeled_repetitive_thinking.jsonl \
-    --output fast_softprompt/cache_cot_repetitive_9b.pt \
-    --num_train 1000 --num_test 200
+    --model models/Qwen3.5-9B \
+    --data cot_inconsistency/data/generated_webinstruct_verified_train_Qwen3_5_122B_A10B_GPTQ_Int4_labeled_repetitive_thinking_fixed_all.jsonl \
+    --output cache_cot_repetitive_9b.pt \
+    --num_train 5000 --num_test 400 --max_length 8192 --mid_layer 16
 """
 
 from __future__ import annotations

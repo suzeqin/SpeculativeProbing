@@ -1,16 +1,15 @@
 """Shared val/test split logic.
 
-Cache files store `num_train` / `num_test` where `num_test` samples live at
-the end of the `token_ids` / `labels` / `hidden_states` arrays. We:
+Cache files store `num_train` / `num_test` where `num_test` held-out samples
+live at the end of the `token_ids` / `labels` / `hidden_states` arrays. We:
 
-1. Start with the cached held-out samples as the evaluation pool.
-2. If the pool has fewer than `target_eval` samples, shift the next samples
-   from the tail of the train bucket into eval (keeps class balance because
-   the cache was shuffled deterministically before splitting).
-3. Deterministically split the evaluation pool into val + test (default 50/50).
+1. Use the cached held-out samples as the evaluation pool (never borrow from
+   the train bucket, which would unbalance a 50/50 balanced dataset).
+2. Deterministically split the pool into val + test with a stratified shuffle
+   so each split stays class-balanced (default 50/50).
 
-Training then uses `train_hidden[: num_train_used]`, model selection uses
-`val_*`, and the final reported metric is computed on `test_*`.
+Training uses `train_hidden[: num_train_used]`, model selection uses `val_*`,
+and the final reported metric is computed on `test_*`.
 """
 from __future__ import annotations
 
@@ -30,9 +29,8 @@ def make_val_test_split(
 ):
     """Split the cached data into (train, val, test) slices.
 
-    Borrows the *last* samples of the cached train bucket if the cached test
-    bucket is smaller than `target_eval`. Keeps the earlier train samples as
-    the actual training set.
+    Uses only the cached held-out samples as the eval pool (never borrows from
+    train); val/test are stratified so both stay class-balanced.
 
     Returns a dict with keys:
         train_hidden, train_ids, train_labels  (lists of length `num_train_used`)

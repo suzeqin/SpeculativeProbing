@@ -1,9 +1,14 @@
 # WebInstruct-Verified CoT 推理轨迹复现：方案、进度与下一步
 
-> 更新时间：2026-11-18 14:55 ｜ 分支：`CoT推理轨迹复现` ｜ 工作目录：`/data1/suzeqin/SpeculativeProbing`（脚本集中在 `cot_local/`）
+> 更新时间：2026-11-19 ｜ 分支：`CoT推理轨迹复现` ｜ 工作目录：`/data1/suzeqin/SpeculativeProbing`（脚本集中在 `cot_local/`）
 >
-> 本文档是本任务的**交接文档**，供 token 恢复后的新会话直接续跑使用。
-> **本次续跑发现了比 OOM 更严重的问题（标注解析 bug + 教师模型语料缺陷），详见 §9。当前正在按干净标签重跑 ④⑤⑥。**
+> 本文档是本任务的**交接 + 报告文档**。任务已完成（30 个数字见 §10）。
+> 两个历史 bug（OOM、标注解析）的根因与修复**仅以文字**记录于 §9 / §12；
+> 相关错误代码与脏数据已按 §13 清理，不再留在仓库。
+>
+> **阅读顺序**：§1 任务 → §9~§12 根因/实验/结论报告 → §10 最终结果 → §13 当前状态与可复现流水线。
+> **§2–§8 是 2026-11-17 的历史快照（已归档）**，描述当时未修复的双实例 + 9216 上下文旧流水线，
+> 其中多数脚本/路径已在 §13 清理中删除，**请勿照其操作**；现行流水线以 §13 为准。
 
 ---
 
@@ -51,7 +56,13 @@ Table 4 CoT Reasoning Strategy（准确率 %）：
 
 ---
 
-## 2. 环境与资源快照（2026-11-17 11:54 实测）
+## 2. 环境与资源快照（2026-11-17 11:54 实测）【已归档】
+
+> **§2–§8 已归档**：这是 2026-11-17 的原始方案快照，描述的是**修复前**的
+> 双 vLLM 实例（A/B）+ 9216 上下文 + `phase2/phase3/final_labeling/label_loop/
+> watchdog/logger/stagger` 看护流水线。该批看护脚本、脏标注文件与运行时标记
+> 已在 2026-11-19 清理中删除（§13）。**这些章节仅作过程记录，不是现行操作手册**；
+> 现行流水线与恢复方式一律见 §13。
 
 ### GPU（8×48GB）
 
@@ -161,17 +172,14 @@ phase3 启动时会自动 `pkill` 两个 vLLM 实例、释放 2-7 号卡给 prec
 
 ---
 
-## 5. 若中断怎么续（新会话操作手册）
+## 5. 若中断怎么续（新会话操作手册）【已废弃】
 
-1. **先看状态**：`bash cot_local/status.sh`、`tail -5 cot_local/monitor.log`、`tail -20 cot_local/phase2_main.log cot_local/phase3_main.log`。
-2. **判活**：`pgrep -af "gen_traces|label_loop|phase2.sh|phase3.sh|watchdog"`；vLLM 存活看 `curl 127.0.0.1:8000/v1/models` 与 `:8001/v1/models`。
-3. **常见恢复**：
-   - 生成客户端挂了 → `nohup ~/miniconda3/envs/sp/bin/python cot_local/gen_traces.py --base-url http://127.0.0.1:8000/v1 --model Qwen3.5-122B-A10B-GPTQ-Int4 --num-samples 18000 --workers 128 >> cot_local/gen_traces.log 2>&1 &`（断点续跑，已生成题目自动跳过；注意 `export HF_ENDPOINT=https://hf-mirror.com`，否则 datasets 联网重试）；
-   - vLLM 实例挂了 → 按 §2 环境说明重启（A：TP=4 于 GPU4-7，`--gpu-memory-utilization 0.97 --max-model-len 9216 --skip-mm-profiling`；B：TP=2 于 GPU2-3，另加 `--max-num-seqs 32`，否则 Mamba 缓存块不足起不来；都必须先 export PATH）；
-   - 标注循环挂了 → `nohup bash cot_local/label_loop.sh <task> 8001 12 &`；
-   - phase2/phase3 看护挂了 → `nohup bash cot_local/phase2.sh / phase3.sh > …_main.log 2>&1 &`（幂等：靠 .gen_done/.labels_done 标记与各脚本自身的 resume）。
-4. **已完成 ②③ 想直接跑 ④⑤**：`touch cot_local/.gen_done cot_local/.labels_done` 后拉起 phase3.sh（注意先确认 gate 数值够，phase3 自带校验）。
-5. **结果核对**：`cat cot_local/RESULTS.txt`；单格明细在各 `results/<task>_<model>/<method>/final_results.json` 的 `metrics.accuracy`。
+> 本节原是双实例看护流水线的续跑手册，其中的 `phase2.sh` / `phase3.sh` /
+> `final_labeling.sh` / `label_loop.sh` / `watchdog.sh` 与 `.gen_done` /
+> `.labels_done` 标记、9216 上下文均已在 §13 清理中删除或废弃。
+> **请勿按本节操作**。现行单实例、干净标签流水线与恢复方式见 §13。
+> 结果核对：`cat cot_local/RESULTS.txt`；单格明细见
+> `results/<task>_<model>/<method>/final_results.json` 的 `metrics.accuracy`。
 
 ## 6. 磁盘预算（phase3 产出，bf16 mmap，~5400 样本×~2500 tok 中位）
 
@@ -196,16 +204,26 @@ phase3 启动时会自动 `pkill` 两个 vLLM 实例、释放 2-7 号卡给 prec
 
 ## 8. 关键路径速查
 
-- 数据：`cot_inconsistency/data/generated_webinstruct_verified_train_Qwen3_5_122B_A10B_GPTQ_Int4*.jsonl`（语料/两任务标注）
-- 服务日志：`cot_local/vllm_122b.log`（实例A）、`vllm_122b_b.log`（实例B）｜ 生成：`gen_traces.log` ｜ 标注：`label_{rep,branched}*_p8001.log`
-- 看护/监控：`watchdog.log`、`phase2_main.log`、`phase3_main.log`、`monitor.log`
+> 【已归档】以下为 2026-11-17 快照路径。现行干净路径见 §13：数据只用
+> `*_fixed_all.jsonl`，脚本集中为 `label_traces.py` / `restart_vllm.sh` /
+> `run_precompute_one.sh` / `rerun_all.sh` / `run_train.sh` / `compile_results.py`。
+
+- 数据（历史）：`cot_inconsistency/data/generated_webinstruct_verified_train_Qwen3_5_122B_A10B_GPTQ_Int4*.jsonl`（语料/两任务标注；脏标注已删，见 §13）
+- 服务日志（历史）：`cot_local/vllm_122b.log`（实例A）、`vllm_122b_b.log`（实例B）｜ 生成：`gen_traces.log`
+- 看护/监控（历史，脚本已删）：`watchdog.log`、`phase2_main.log`、`phase3_main.log`、`monitor.log`
 - 训练实现：`fast_softprompt/train_{softprompt,eagle3_minicpm,mlp,multimax}.py`；缓存：`fast_softprompt/precompute_hidden_states{,_cot,_minicpm}.py`
 - 结果：`results/cot_{repetitive,branched}_{4b,9b,mcpm}/`，汇总 `cot_local/RESULTS.txt`（编译脚本含论文对照值）
-- 历史复现（verih/nemotron 等）的 cache/日志在仓库根目录，可作格式参照；**cot_local/ 尚未 git 提交，收尾时记得 add+commit**
 
 ---
 
 ## 9. 2026-11-18 续跑记录（重要：两个根因 + 干净标签重跑）
+
+> **§9–§12 是历史调查报告（纯文字）**：这两个 bug（OOM、标注子串解析）的
+> 根因、证据与修复过程在此以文字完整留存。下文提到的一次性诊断脚本与数据
+> （`make_fixed_labels.py`、`probe_*.py` / `relabel_*.py` / `serve_4b.sh`、
+> `probe_4b_*.jsonl`、`relabel_dryrun.jsonl`、`RESULTS_original_buggy.txt`、
+> 含伪正例的脏标注文件、`.gen_done` / `.labels_done`）均已在 2026-11-19 的
+> §13 清理中从仓库删除，仅保留本报告的结论文字。**现行流水线见 §13。**
 
 ### 9.1 首次 phase3 的两个失败根因
 
@@ -263,12 +281,10 @@ killer 在 epoch 1-2 中途 `Killed`。此外 `run_train.sh` 没给 `train_multi
 趋势参考、方差大；Table 4 训练集 4844 条，量级接近论文。两表数值与论文的差异
 首要来源是教师模型（122B-A10B-Int4）生成的轨迹分布，而非实现错误。
 
-### 9.3 续跑操作
+### 9.3 续跑操作（历史）
 
-`bash cot_local/status.sh`／`cat cot_local/RESULTS.txt`／`tail -20 cot_local/rerun_all_main.log`／
-`ls -la cot_local/repre_*.log`（precompute 进度）。监督器自己会接力训练和汇总，
-结束后看 `cot_local/RESULTS.txt`。GPU 0-1 是他人进程，勿动；教师 vLLM 已停，
-2-7 全部给 precompute/训练。
+当时用 `status.sh` / `RESULTS.txt` / `repre_*.log` 观察进度，监督器自动接力。
+**该轮已结束**（§10）；现行恢复方式与脚本清单统一见 §13。
 
 ---
 
@@ -277,8 +293,9 @@ killer 在 epoch 1-2 中途 `Killed`。此外 `run_train.sh` 没给 `train_multi
 `rerun_all.sh` 于 20:38 全部完成：6/6 precompute `PRECOMPUTE_ONE_DONE`、
 30/30 `final_results.json`、训练日志 0 个 Traceback/Killed/OOM。缓存标签复核：
 repetitive 444 train(222 正)/400 test(200 正)，branched ~4844 train(2422 正)/
-400 test(200 正)，全部平衡。`cot_local/RESULTS.txt` 为下表，
-`cot_local/RESULTS_original_buggy.txt` 为修复前（仅 6 格有效）的对照。
+400 test(200 正)，全部平衡。`cot_local/RESULTS.txt` 为下表。修复前（含标注 bug）
+仅 6 格有效的数字（69.0/66.5/71.5）已在 §9.1 以文字记录；对应的对照数据文件
+已在 §13 清理中删除，不再单独保留。
 
 ### Table 3 — CoT Repetition（复现值/论文值，%）
 
@@ -335,6 +352,187 @@ repetitive 444 train(222 正)/400 test(200 正)，branched ~4844 train(2422 正)
   `precompute_hidden_states_cot.py`（稳健平衡采样）、`cot_local/label_traces.py`
   （严格裁决解析）、`cot_local/run_train.sh`（MultiMax --mmap_cache + 幂等跳过）、
   `cot_local/run_precompute_one.sh`（指向 `*_fixed_all.jsonl`）。
-- 新增：`cot_local/make_fixed_labels.py`、`rerun_training.sh`、`rerun_all.sh`、
-  `restart_vllm.sh`；数据与结果：`*_fixed_all.jsonl`、`RESULTS.txt`、
-  `RESULTS_original_buggy.txt`、30 个 `final_results.json`。
+- 新增（保留）：`rerun_training.sh`、`rerun_all.sh`、`restart_vllm.sh`、
+  `run_precompute_one.sh`、`run_train.sh`、`compile_results.py`、`status.sh`；
+  数据与结果：`*_fixed_all.jsonl`、`RESULTS.txt`、30 个 `final_results.json`。
+- 一次性诊断脚本（§9–§12 提到，已在 §13 清理中删除，仅留文字结论）：
+  `make_fixed_labels.py`、`phase2.sh` / `phase3.sh` / `final_labeling.sh` /
+  `label_loop.sh` / `watchdog.sh` / `logger.sh` / `stagger.sh`、
+  `probe_*.py` / `relabel_*.py` / `serve_4b.sh`、`RESULTS_original_buggy.txt`。
+
+---
+
+## 11. 探针实验：验证"换弱生成器"能否提高 CoT 正例率（2026-11-18 深夜）
+
+§10 结论 3/4 把 Table 3 偏低归咎于"教师 122B 太强、语料缺少重复思考"。
+为验证该假设并评估上一轮建议的"换弱生成器"方案，做了一组受控探针
+（GPU2 起 Qwen3.5-4B 生成、GPU4-7 起 122B 作裁判，脚本见本节末尾）。
+
+### 实验设置
+- 论文原始协议（Appendix A.2 核对）：~10k 题、每题一条 Qwen3.5-Plus 轨迹、
+  `max_completion_tokens=4096`、完整轨迹典型 1k–6k token、GPT-5.4 独立裁判、
+  标注后对多数类下采样到 50/50 → 4950/200/200。要凑够需原始正率 ~25–30%。
+- 旧语料偏差：`gen_traces.py` 把上限提到 8192（122B 思考更长），T=0.6
+  （`generation_config.json` 默认），轨迹中位 ~3500 token；裁判仍在 9216 上下文。
+- 新语料：`probe_gen.py` 用 Qwen3.5-4B、T=0.8、cap 4096、seed=42 前 200 题；
+  86% 轨迹在 4096 内未闭合 `</think>`（长而绕）。
+
+### 结果（3 种独立测量）
+| 测量 | OLD(122B 生成) | NEW(4B 生成) | 结论 |
+|---|---|---|---|
+| 确定性 loop 指标（`repetition_probe.py`） | 基线 | loop score 1.18×、超旧 p95 比例 8.5% vs 5%（1.7×） | 4B 表面更啰嗦 |
+| thinking-off 严格裁判（`probe_judge.py --modes off`） | 1.5% (3/194) | 7.6% (15/197) | 看似 5× 提升 |
+| **thinking-on 大上下文严格裁判**（16384，最贴 GPT-5.4） | **12.5%** (8/64) | **11.1%** (6/54) | **换生成器无效** |
+
+### 结论（推翻 §10 的归因，重要）
+1. **换弱生成器不是有效方案**：论文式语义裁判下，4B 语料正率与 122B 语料
+   相当（12.5% vs 11.1%，样本内不显著）。4B 只是"表面啰嗦/轨迹长"，
+   语义裁判能区分"未答完的长推理"与论文定义的"达到答案后原地打转"。
+   thinking-off 与确定性指标给出的 5×/1.7× 是表面信号，不构成论文标签。
+2. **Table 3 崩掉的真正主因是裁判配置，不是教师语料**：同一份 OLD 语料，
+   16384 上下文 + thinking 跑完 + 严格解析判出 **12.5%**，而旧的 9216 截断配置
+   只留下 **4.7%** 干净短裁决。即 §9.1② 的 bug 不只是"误标"，还系统性压低了
+   可用正例数。教师模型差异是次要因素。
+3. 因此**最高杠杆是修裁判**：用 16384 上下文让 122B 裁判把 thinking 跑完并严格
+   解析（或两阶段：规则预筛 + 裁判 / 多裁判投票），重新标注现有 ~13k 语料。
+   预期把正率恢复到 ~12%、平衡训练集从 444 提升到 ~3000+，Table 3 显著改善；
+   且零轨迹生成成本。距论文 25–30% 仍有差距（教师/裁判不同），绝对值无法对齐，
+   但趋势与量级可进一步逼近。
+4. 生成器方面顺带发现：cap 8192 时 4B 闭合率升到 50–62%（T=0.6），轨迹更完整、
+   loop 词更多；如将来要重建语料，应优先恢复论文的长度分布，而非单纯升温。
+
+### 本次新增脚本（探针，一次性；已在 §13 清理中删除，仅留结论文字）
+当时的脚本：`probe_gen.py`（弱生成器采样）、`serve_4b.sh`（GPU2 起 4B）、
+`repetition_probe.py`（无裁判循环度 A/B）、`probe_judge.py`（同裁判 A/B 正率）；
+数据 `probe_4b_t09.jsonl`(68)、`probe_4b_t08.jsonl`(200)。这些均为一次性诊断
+产物，已删除，不复现时无需它们；实验设置与数字以上表文字为准。
+两个 vLLM 服务实验后已停、GPU2-7 已释放。
+
+### 待办（历史，已由 §12 判定不执行）
+原设想用 16384 上下文重标全量语料再重跑。§12 的可行性诊断证明本地裁判
+thinking-on 全量重标需 10+ 小时、且正率仍受模型天花板限制，收益不足以支撑；
+结论为**不执行**。§11/§12 使用的一次性探针脚本与数据已在 §13 清理中删除，
+此处仅保留实验结论文字，不作为可执行步骤。
+
+---
+
+## 12. 全量重标可行性诊断：本地裁判的能力天花板（2026-11-18 深夜续）
+
+用户选定"只重标 repetitive"，但在落地前先做了裁判配置的规模化验证，
+结论是**这条路的成本与收益都与我先前描述的偏差很大**，如实记录。
+
+### 12.1 本地 122B-A10B-GPTQ-Int4 作 CoT Repetition 裁判的实测（40 条固定样本）
+
+| 配置 | 解析可用 | 正率 | 单批耗时 | 判定 |
+|---|---|---|---|---|
+| thinking-off + 原始 prompt | 40/40 | **0.0%** | 14s | 无脑输出 "no"，不可用 |
+| thinking-off + LABEL 模板 / 1-2 句理由 | 40/40 | **0.0%** | 16s | 仍全 "no" |
+| guided_choice ["yes","no"]（约束解码） | 40/40 | **0.0%** | 14s | 仍全 "no" |
+| thinking-on + ONLY 提示 + 4096 | 40/40 | **7.5%** | 119s | 唯一贴近论文，但慢 |
+| thinking-on + 4096/8192（§11 配置） | 14-18/40 | 11-14% | 128-216s | `</think>` 闭合率不稳 |
+| §11 探针（16384, 6144, 跑完 thinking） | 64/100 | **12.5%** | ~22min/100 | 最贴 GPT-5.4 |
+
+根因诊断（打印 `</think>` 后文本）：该模型 thinking 时写 9k–13k 字符的
+"Thinking Process"。要么在 4k–8k token 内**不闭合 `</think>`**（截断），
+要么闭合后输出一段解释文字而非 bare yes/no。这正是 §9.1② 原始 bug 的根源，
+不是脚本能完全消除的——**模型本身的判别/遵循能力弱于论文的 GPT-5.4**。
+
+### 12.2 对 §10/§11 结论的修正（重要）
+
+1. §10 结论 3 说"Table 3 偏低主因是教师语料"——**只对一半**。实测同一份旧
+   语料，9216 截断裁判 → 4.7% 干净正例；16384 跑完 thinking → 12.5%。
+   即 **裁判配置贡献 +7.8pt**，但 12.5% 仍只有论文 25–30% 的一半，
+   **教师语料分布再贡献 ~13–18pt**。两个因素约占各半，不能只怪其一。
+2. §11 说"换弱生成器无效"——仍然成立且被再次确认。
+3. 我先前向用户描述的"重标=零生成成本、几小时、正率稳到 12%、训练集 3000+"
+   **过于乐观**：靠 thinking-on 全量跑 13341 条需约 10+ 小时 GPU（122B 常驻、
+   ~650 tok/s）、且 `</think>` 闭合率与解析口径都需额外工程；而 thinking-off /
+   约束解码这些"快"配置一律给出 0% 正例，完全无效。
+
+### 12.3 现状与建议
+
+已交付的 30 个数字（§10）是在"可信短裁决 8994 条 / 422 正例 / 训练集 444"
+下取得：Table 4 平均误差 2.63pt（高保真），Table 3 平均低 13.4pt。
+在无 Qwen3.5-Plus（生成）与 GPT-5.4（裁判）API 的前提下，**Table 3 的绝对值
+对齐存在由"生成模型 + 裁判模型"共同决定的天花板**，脚本/上下文无法突破。
+
+若仍要边际改善，唯一成本可控的做法是**只重判 gap 样本**：
+`*_fixed_all.jsonl` 已有 8994 条可信短裁决；主 corpus 13341 条里差
+4347 条（=2622 条长 essay + 1725 条未标注），只需对这 4347 条用 16384
+thinking-on 裁判重判再合并。但仍需数小时 GPU、引入"短裁决 + 长推理"混合口径，
+且预期正率仅 ~8–10%、训练集 ~1600–2000、Table 3 小幅改善、仍达不到论文。
+
+### 12.4 本次探针脚本（一次性；已在 §13 清理中删除，仅留结论文字）
+当时的脚本：`serve_4b.sh`、`probe_gen.py`、`repetition_probe.py`、
+`probe_judge.py`、`relabel_full.py`；数据 `probe_4b_t09.jsonl`(68)、
+`probe_4b_t08.jsonl`(200)、`relabel_dryrun.jsonl`。均为一次性诊断产物，已删除；
+§12.1 的实测数据与 §12.2/§12.3 的结论以文字保留。服务已停、GPU 已释放。
+
+---
+
+## 13. 仓库清理与现行可复现流水线（2026-11-19）
+
+用户要求：两个历史 bug（OOM、子串解析）**只以文字**保留在报告/日志中，
+其**错误代码与无效数据一律不留在仓库**。据此做了收尾清理与代码修正。
+
+### 13.1 两个 bug 的错误代码：已从仓库移除（仅留 §9/§12 文字）
+
+| bug | 曾经的错误实现 | 现在的正确实现 |
+|---|---|---|
+| 标注子串解析 | `if scheme["positive"] in answer`（长文本里 `"yes"` 必然命中）、`else: raw_answer = raw`（把整段 "Thinking Process:" 长文当答案）、裁判默认 `9216` 上下文把 thinking 截断 | `label_traces.py` 与上游 `label_generated_simpleqa_gpt_repetitive_thinking.py` 的 `label_one` 均为**严格解析**：必须出现 `</think>`、只取其后 ≤64 字符且以精确 `yes/no/linear/branched` 开头，否则 `label=-1` 丢弃；输出直接写 `*_fixed_all.jsonl`；裁判上下文统一 `16384`（`restart_vllm.sh` 与 `label_traces.py` 对齐） |
+| OOM（mmap） | `torch.load(mmap=True)` 默认 `MAP_PRIVATE` 计入 commit limit，608GB 缓存 `ENOMEM`；gemma 分支、`benchmark_gpt_zeroshot.py` 绕过修复；MultiMax 缺 `--mmap_cache` | `cache_io.py` 所有分支（含 `gemma_mtp_v1`）统一走 `_load_bundle()` 强制 `MAP_SHARED`；`benchmark_gpt_zeroshot.py` 改用 `cache_io.load_cache`；`run_train.sh` 四个方法全带 `--mmap_cache` |
+
+配套修正：所有标注数据引用统一指向 `*_fixed_all.jsonl`（`run_precompute.sh`、
+`status.sh`、`precompute_hidden_states_cot.py` 用法示例）；`eval_split.py` 文档
+同步为分层平衡划分；`restart_vllm.sh` 去掉"可退回 9216"的注释。
+
+全仓复扫确认：`*.py` / `*.sh` 中已无 `9216`、无 `in answer` 子串匹配、无
+`raw_answer = raw`、无绕过 `_load_bundle` 的 `torch.load(... mmap=...)`、无指向
+脏标注文件 `*_labeled_<task>.jsonl`（非 `_fixed_all`）的路径。
+
+### 13.2 无效数据 / 一次性脚本：已从仓库删除
+
+- **脏标注数据**：`*_labeled_repetitive_thinking.jsonl`(11616，含 2560 伪正例)、
+  `*_labeled_branched_thinking.jsonl`(11545，含 2317 伪正例) 删除。
+- **带 bug 的结果备份**：`RESULTS_original_buggy.txt`（仅 6 格）删除，数字已在
+  §9.1/§10 以文字记录。
+- **一次性诊断脚本/数据**：`make_fixed_labels.py`、`probe_gen.py` /
+  `probe_judge.py` / `repetition_probe.py` / `relabel_full.py` / `serve_4b.sh`、
+  `probe_4b_*.jsonl`、`relabel_dryrun.jsonl`、`phase2.sh` / `phase3.sh` /
+  `final_labeling.sh` / `label_loop.sh` / `watchdog.sh` / `logger.sh` /
+  `stagger.sh`（含写死的旧 PID）、运行时标记 `.gen_done` / `.labels_done` 全部删除。
+- `*.log` 运行日志按 `.gitignore` 不纳入版本库（属"日志"文字记录，保留在磁盘）。
+
+**保留的干净数据**：语料 `..._Int4.jsonl`(13341)、干净标签
+`*_labeled_<task>_fixed_all.jsonl`（rep 8994 / br 9212）、`RESULTS.txt`、
+30 个 `final_results.json`、14 份 `cache_cot_*` 缓存。
+
+### 13.3 现行流水线（唯一权威入口，勿用 §2–§8 旧脚本）
+
+```
+① 起裁判   bash cot_local/restart_vllm.sh        # 122B, TP=4, GPU4-7, 端口8000, 16384
+② 生成语料 python cot_local/gen_traces.py ...   # 断点续跑；语料已存在可跳过
+③ 标注     python cot_local/label_traces.py --input <corpus>.jsonl \
+              --task <repetitive_thinking|branched_thinking> --base-url http://127.0.0.1:8000/v1
+           # 严格解析，直接产出 <...>_labeled_<task>_fixed_all.jsonl（无脏中间文件）
+           # 干净标签已存在，日常复现可跳过 ①②③
+④ 重算+训练+汇总  bash cot_local/rerun_all.sh
+           # 删旧 cot 缓存/结果 → 6 路 run_precompute_one.sh（读 *_fixed_all.jsonl）
+           # → rerun_training.sh（run_train.sh 幂等 + 3 轮重试）→ compile_results.py
+⑤ 查看     cat cot_local/RESULTS.txt ; bash cot_local/status.sh
+```
+
+脚本清单（`cot_local/`）：`restart_vllm.sh`、`gen_traces.py`、`label_traces.py`、
+`run_precompute_one.sh` / `run_precompute.sh`、`run_train.sh`、
+`rerun_training.sh`、`rerun_all.sh`、`compile_results.py`、`status.sh`。
+核心库（`fast_softprompt/`）：`cache_io.py`（MAP_SHARED）、
+`precompute_hidden_states_cot.py`（稳健平衡采样）、`eval_split.py`（分层平衡）、
+`train_{softprompt,eagle3_minicpm,mlp,multimax}.py`。
+
+### 13.4 结果与边界（不变）
+
+30/30 数字见 §10：Table 4 平均绝对误差 **2.63pt**（趋势/数值级复现成功），
+Table 3 平均低 **13.4pt**（15/15 格低于论文）。偏差由"裁判配置 + 教师/裁判
+模型与论文不同"共同决定，且本环境无 Qwen3.5-Plus（生成）+ GPT-5.4（裁判）
+API，绝对值对齐存在天花板——详见 §11/§12 的实验文字记录。清理只让仓库
+代码与数据变干净，**不改变已交付的 30 个数字**。

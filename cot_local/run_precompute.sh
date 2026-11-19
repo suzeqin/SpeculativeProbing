@@ -15,10 +15,10 @@ WHICH=$2
 
 DATA_DIR=cot_inconsistency/data
 CORPUS_GEN=Qwen3_5_122B_A10B_GPTQ_Int4   # slug of the local judge model name
-REP_DATA=$DATA_DIR/generated_webinstruct_verified_train_${CORPUS_GEN}_labeled_repetitive_thinking.jsonl
-BR_DATA=$DATA_DIR/generated_webinstruct_verified_train_${CORPUS_GEN}_labeled_branched_thinking.jsonl
+REP_DATA=$DATA_DIR/generated_webinstruct_verified_train_${CORPUS_GEN}_labeled_repetitive_thinking_fixed_all.jsonl
+BR_DATA=$DATA_DIR/generated_webinstruct_verified_train_${CORPUS_GEN}_labeled_branched_thinking_fixed_all.jsonl
 
-PRECOMMON="--num_train 5000 --num_test 400 --max_length 8192 --batch_size 2"
+PRECOMMON="--num_train 5000 --num_test 400 --max_length 8192 --batch_size 4"
 
 case "$WHICH" in
   4b)

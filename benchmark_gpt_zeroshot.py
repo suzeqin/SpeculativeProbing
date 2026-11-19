@@ -35,7 +35,11 @@ MAX_CHARS = 12000  # truncate very long samples so a request fits in the context
 
 
 def load_test_texts(cache_path):
-    cache = torch.load(cache_path, map_location="cpu", weights_only=False, mmap=True)
+    # Route mmap loads through cache_io._load_bundle (MAP_SHARED) so large
+    # caches never use the commit-charged MAP_PRIVATE mapping.
+    sys.path.insert(0, os.path.join(ROOT, "fast_softprompt"))
+    from cache_io import load_cache
+    cache = load_cache(cache_path, mmap=True)
     num_train = cache["num_train"]
     num_test = cache["num_test"]
     all_ids = cache["token_ids"]

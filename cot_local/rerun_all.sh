@@ -3,8 +3,8 @@
 # robust balanced sampler, then train all 6 (model, task) cells, then compile.
 #
 # Prerequisites (already applied):
-#   * make_fixed_labels.py produced _labeled_<task>_fixed_all.jsonl
-#     (keeps only exact single-word judge verdicts; drops truncated essays)
+#   * label_traces.py (strict parsing, 16384 ctx) wrote the *_fixed_all.jsonl
+#     clean label files directly; no dirty intermediate label files exist
 #   * precompute_hidden_states_cot.load_cot_data balances robustly
 #   * eval_split.py keeps val/test stratified and balanced
 #   * cache_io._load_bundle uses MAP_SHARED (large mmap caches, no ENOMEM)
@@ -17,18 +17,12 @@ PY=/home/suzeqin/miniconda3/envs/sp/bin/python
 
 echo "rerun_all: START $(date '+%F %T')"
 
-# Preserve the original (label-bug) numbers for the record.
-if [ -f cot_local/RESULTS.txt ]; then
-  cp -f cot_local/RESULTS.txt cot_local/RESULTS_original_buggy.txt
-fi
-
-# Discard results produced under the corrupted labels so the idempotent
-# supervisor actually retrains every cell.
+# Discard existing results so the idempotent supervisor retrains every cell.
 find results -maxdepth 3 -path "*cot_*" -name final_results.json -delete
 echo "rerun_all: cleared old cot_* results ($(find results -maxdepth 3 -path '*cot_*' -name final_results.json | wc -l) left)"
 
-# Old caches were built from the corrupted labels and are invalid. Removing
-# them also avoids temporary .hidden.raw + stale .hidden doubling disk usage
+# Rebuild caches from scratch so labels and hidden states stay consistent.
+# This also avoids temporary .hidden.raw + stale .hidden doubling disk usage
 # (mcpm eagle3 alone is ~600 GB).
 before=$(df -BG --output=avail /data1 | tail -1 | tr -dc '0-9')
 rm -f cache_cot_*.pt cache_cot_*.pt.hidden cache_cot_*.hidden.raw
